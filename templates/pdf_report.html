@@ -1,0 +1,344 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Security Report - {{ bug.title }}</title>
+    <style>
+        @page {
+            size: A4;
+            margin: 20mm 18mm 20mm 18mm;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'DejaVu Sans', 'Arial', 'Helvetica', sans-serif;
+            font-size: 10.5pt;
+            line-height: 1.55;
+            color: #1a202c;
+            background: white;
+            direction: ltr;
+        }
+
+        /* ── Header ── */
+        .header {
+            text-align: center;
+            padding: 24px 0 20px 0;
+            border-bottom: 3px solid #2b6cb0;
+            margin-bottom: 28px;
+        }
+        .logo {
+            font-size: 26pt;
+            font-weight: bold;
+            color: #2b6cb0;
+            letter-spacing: 1px;
+        }
+        .subtitle {
+            font-size: 10pt;
+            color: #718096;
+            margin-top: 4px;
+        }
+
+        /* ── Report title ── */
+        .report-title {
+            font-size: 17pt;
+            font-weight: bold;
+            color: #1a202c;
+            margin: 0 0 18px 0;
+            padding-bottom: 10px;
+            border-bottom: 2px solid #bee3f8;
+            word-break: break-word;
+        }
+
+        /* ── Severity badge ── */
+        .badge-wrap {
+            text-align: center;
+            margin: 14px 0;
+        }
+        .severity-badge {
+            display: inline-block;
+            padding: 5px 18px;
+            border-radius: 4px;
+            font-weight: bold;
+            font-size: 11pt;
+        }
+        .severity-critical { background: #fff5f5; color: #c53030; border: 2px solid #fc8181; }
+        .severity-high     { background: #fffaf0; color: #c05621; border: 2px solid #ed8936; }
+        .severity-medium   { background: #fffff0; color: #744210; border: 2px solid #ecc94b; }
+        .severity-low      { background: #ebf8ff; color: #2c5282; border: 2px solid #63b3ed; }
+
+        /* ── CVSS box ── */
+        .cvss-box {
+            background: #2b6cb0;
+            color: white;
+            padding: 18px 24px;
+            text-align: center;
+            margin: 18px 0;
+        }
+        .cvss-score {
+            font-size: 38pt;
+            font-weight: bold;
+            line-height: 1.1;
+        }
+        .cvss-label {
+            font-size: 10pt;
+            margin: 3px 0;
+        }
+
+        /* ── Metadata real table ── */
+        .meta-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 20px 0;
+            font-size: 10pt;
+        }
+        .meta-table td {
+            padding: 9px 12px;
+            border: 1px solid #cbd5e0;
+            vertical-align: top;
+            word-break: break-word;
+        }
+        .meta-table td:first-child {
+            font-weight: bold;
+            color: #4a5568;
+            width: 34%;
+            background: #f7fafc;
+        }
+
+        /* ── Tags ── */
+        .tags-wrap {
+            margin: 16px 0;
+        }
+        .tags-label {
+            font-weight: bold;
+            color: #4a5568;
+            font-size: 10pt;
+        }
+        .tag {
+            display: inline-block;
+            padding: 3px 10px;
+            background: #ebf4ff;
+            color: #2b6cb0;
+            border: 1px solid #bee3f8;
+            border-radius: 3px;
+            margin: 3px 4px 3px 0;
+            font-size: 9.5pt;
+        }
+
+        /* ── Content sections ── */
+        .section {
+            margin: 24px 0;
+        }
+        .section-title {
+            font-size: 13pt;
+            font-weight: bold;
+            color: #2b6cb0;
+            margin-bottom: 10px;
+            padding-bottom: 5px;
+            border-bottom: 1.5px solid #bee3f8;
+            word-break: break-word;
+        }
+        .section-content {
+            padding: 14px 16px;
+            background: #f7fafc;
+            border: 1px solid #e2e8f0;
+            font-size: 10pt;
+            white-space: pre-line;
+            word-break: break-word;
+            overflow-wrap: anywhere;
+        }
+
+        /* ── PoC image ── */
+        .poc-image {
+            width: 100%;
+            display: block;
+            margin: 12px 0;
+            border: 1px solid #e2e8f0;
+        }
+
+        /* ── CVSS breakdown table ── */
+        .data-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 12px 0;
+            font-size: 10pt;
+        }
+        .data-table th {
+            background: #2b6cb0;
+            color: white;
+            padding: 8px 12px;
+            text-align: left;
+            border: 1px solid #2b6cb0;
+            font-weight: bold;
+        }
+        .data-table td {
+            padding: 8px 12px;
+            border: 1px solid #e2e8f0;
+            word-break: break-word;
+        }
+        .data-table tr:nth-child(even) td {
+            background: #f7fafc;
+        }
+
+        /* ── Disclaimer ── */
+        .disclaimer {
+            background: #fffbeb;
+            border: 1.5px solid #f6ad55;
+            padding: 14px 16px;
+            margin: 24px 0;
+            font-size: 9.5pt;
+            word-break: break-word;
+        }
+
+        /* ── Footer ── */
+        .footer {
+            margin-top: 36px;
+            padding-top: 14px;
+            border-top: 1.5px solid #e2e8f0;
+            text-align: center;
+            font-size: 9pt;
+            color: #718096;
+        }
+        .footer p { margin: 3px 0; }
+
+        /* ── Page break helpers ── */
+        .no-break { page-break-inside: avoid; }
+    </style>
+</head>
+<body>
+
+    <!-- Header -->
+    <div class="header">
+        <div class="logo">BOUNTYHUB</div>
+        <div class="subtitle">Cybersecurity Vulnerability Report &nbsp;|&nbsp; منصة إدارة تقارير الأمن السيبراني</div>
+    </div>
+
+    <!-- Report Title -->
+    <h1 class="report-title">{{ bug.title }}</h1>
+
+    <!-- Severity badge -->
+    <div class="badge-wrap no-break">
+        <span class="severity-badge severity-{{ bug.severity.lower() }}">{{ bug.severity }}</span>
+    </div>
+
+    <!-- CVSS box -->
+    <div class="cvss-box no-break">
+        <div class="cvss-label">CVSS v3.1 Base Score</div>
+        <div class="cvss-score">{{ bug.cvss_score }}</div>
+        <div class="cvss-label">{{ bug.severity }} Severity</div>
+    </div>
+
+    <!-- Metadata -->
+    <table class="meta-table no-break">
+        <tr>
+            <td>Report ID</td>
+            <td>#{{ bug.id }}</td>
+        </tr>
+        <tr>
+            <td>Date Discovered</td>
+            <td>{{ bug.date_created.strftime('%Y-%m-%d %H:%M') }}</td>
+        </tr>
+        <tr>
+            <td>Status</td>
+            <td>{% if bug.status == 'open' %}Open
+                {% elif bug.status == 'in-progress' %}In Progress
+                {% elif bug.status == 'resolved' %}Resolved
+                {% else %}{{ bug.status }}{% endif %}</td>
+        </tr>
+        <tr>
+            <td>CVSS Score</td>
+            <td>{{ bug.cvss_score }} / 10.0</td>
+        </tr>
+        {% if bug.program %}
+        <tr>
+            <td>Program</td>
+            <td>{{ bug.program.name }}</td>
+        </tr>
+        {% endif %}
+    </table>
+
+    <!-- Tags -->
+    {% if tags %}
+    <div class="tags-wrap no-break">
+        <span class="tags-label">Tags: </span>
+        {% for tag in tags %}
+        <span class="tag">{{ tag }}</span>
+        {% endfor %}
+    </div>
+    {% endif %}
+
+    <!-- Steps to Reproduce -->
+    <div class="section">
+        <div class="section-title">Steps to Reproduce (Proof of Concept)</div>
+        <div class="section-content">{{ bug.steps }}</div>
+    </div>
+
+    <!-- Impact -->
+    <div class="section">
+        <div class="section-title">Business Impact</div>
+        <div class="section-content">{{ bug.impact }}</div>
+    </div>
+
+    <!-- Remediation -->
+    {% if bug.remediation %}
+    <div class="section">
+        <div class="section-title">Remediation</div>
+        <div class="section-content">{{ bug.remediation }}</div>
+    </div>
+    {% endif %}
+
+    <!-- PoC Screenshot -->
+    {% if bug.poc_image and img_data_uri %}
+    <div class="section no-break">
+        <div class="section-title">Proof of Concept — Screenshot</div>
+        <img src="{{ img_data_uri }}" alt="PoC Screenshot" class="poc-image">
+    </div>
+    {% endif %}
+
+    <!-- CVSS Breakdown -->
+    <div class="section no-break">
+        <div class="section-title">CVSS v3.1 Breakdown</div>
+        <table class="data-table">
+            <tr>
+                <th>Metric</th>
+                <th>Value</th>
+                <th>Description</th>
+            </tr>
+            <tr>
+                <td>Base Score</td>
+                <td><strong>{{ bug.cvss_score }}</strong></td>
+                <td>Overall base severity score</td>
+            </tr>
+            <tr>
+                <td>Severity</td>
+                <td><strong>{{ bug.severity }}</strong></td>
+                <td>Qualitative severity rating</td>
+            </tr>
+            <tr>
+                <td>Standard</td>
+                <td><strong>CVSS v3.1</strong></td>
+                <td>Common Vulnerability Scoring System</td>
+            </tr>
+        </table>
+    </div>
+
+    <!-- Disclaimer -->
+    <div class="disclaimer no-break">
+        <strong>Disclaimer:</strong> This report is intended for authorized security personnel only.
+        All information contained herein is strictly confidential.
+        Unauthorized use or disclosure may result in legal liability.
+    </div>
+
+    <!-- Footer -->
+    <div class="footer">
+        <p><strong>BountyHub Security Platform</strong></p>
+        <p>Generated: {{ bug.date_created.strftime('%Y-%m-%d %H:%M:%S') }}</p>
+        <p style="margin-top: 6px; font-size: 8.5pt;">Confidential — For Authorized Personnel Only</p>
+    </div>
+
+</body>
+</html>

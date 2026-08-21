@@ -1,0 +1,310 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}BountyHub v2{% endblock %} — AI Recon Engine</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+    <link href="{{ url_for('static', filename='css/theme.css') }}" rel="stylesheet">
+    <!-- DOMPurify served locally — CDN unavailability must never cause XSS fallback -->
+    <script src="{{ url_for('static', filename='js/purify.min.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/marked.min.js') }}"></script>
+    {% block head %}{% endblock %}
+    <style>
+        /* ── App shell (theme.css tokens only) ───────────────────────
+           Theme.css already provides: reset (* box-sizing, margin/padding 0),
+           html scroll-behavior, body font/background/color, ::-webkit-scrollbar,
+           ambient background glow. Everything below is app-shell chrome
+           layered on top: navbar, main wrapper, flash alerts, toast. */
+
+        html, body { height: 100%; min-height: 100%; }
+        ::selection { background: var(--glow); }
+
+        /* ── Navbar (theme.css tokens; JS class hooks preserved) ────── */
+        .bh-navbar {
+            position: sticky; top: 0; z-index: 1000;
+            display: flex; align-items: center; justify-content: space-between;
+            height: 64px;
+            padding: 0 var(--s3);
+            background: rgba(10, 11, 13, 0.82);
+            border-bottom: 1px solid var(--line);
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
+            font-family: var(--font-body);
+        }
+        .bh-brand {
+            display: flex; align-items: center; gap: var(--s1);
+            font-family: var(--font-display); font-weight: 400;
+            font-size: var(--t-md);
+            color: var(--ink); text-decoration: none;
+            letter-spacing: -.02em;
+        }
+        .bh-brand:hover { color: var(--ink); }
+        .bh-brand-mark {
+            display: flex; align-items: center; justify-content: center;
+            flex-shrink: 0;
+            width: 28px; height: 28px;
+            background: var(--accent); color: var(--bg);
+            border-radius: var(--r-sm);
+            font-family: var(--font-mono); font-size: 12px; font-weight: 700;
+            letter-spacing: -.03em;
+            box-shadow: 0 0 18px var(--glow);
+        }
+        .bh-brand-tag {
+            color: var(--ink-faint);
+            font-family: var(--font-mono); font-size: 11px;
+            letter-spacing: .04em; margin-left: 2px;
+        }
+        /* Legacy dot kept as no-op so any residual JS/CSS reference is safe */
+        .bh-brand-dot { display: none; }
+
+        .bh-nav-links {
+            display: flex; align-items: center; gap: 2px;
+        }
+        .bh-nav-link {
+            display: inline-flex; align-items: center;
+            padding: 8px 14px;
+            border-radius: var(--r-sm);
+            font-family: var(--font-body);
+            font-size: 13px; font-weight: 500;
+            color: var(--ink-soft);
+            white-space: nowrap;
+            transition: color .18s, background .18s;
+            position: relative;
+        }
+        .bh-nav-link:hover { color: var(--ink); background: var(--surface); }
+        .bh-nav-link.active {
+            color: var(--accent);
+            background: var(--glow);
+        }
+        .bh-nav-link.active::after {
+            content: ""; position: absolute;
+            left: 14px; right: 14px; bottom: 4px;
+            height: 1px; background: var(--accent);
+            opacity: .8;
+        }
+        .bh-nav-link.danger  { color: var(--ink-faint); }
+        .bh-nav-link.danger:hover { color: var(--red); background: rgba(255,93,93,.08); }
+
+        .bh-nav-sep {
+            width: 1px; height: 18px;
+            background: var(--line-bright);
+            margin: 0 var(--s1);
+        }
+        .bh-nav-badge {
+            display: inline-flex; align-items: center;
+            padding: 4px 10px; margin-left: 4px;
+            background: var(--surface); color: var(--ink-soft);
+            border: 1px solid var(--line);
+            border-radius: var(--r-pill);
+            font-family: var(--font-mono); font-size: 11px;
+            font-weight: 500; letter-spacing: .02em;
+        }
+
+        /* Mobile hamburger — hidden on desktop, shown ≤880px */
+        .bh-nav-toggle {
+            display: none;
+            width: 36px; height: 36px;
+            align-items: center; justify-content: center;
+            background: transparent;
+            border: 1px solid var(--line-bright);
+            border-radius: var(--r-sm);
+            color: var(--ink-soft); cursor: pointer;
+            transition: color .18s, border-color .18s;
+        }
+        .bh-nav-toggle:hover { color: var(--ink); border-color: var(--ink-soft); }
+        .bh-nav-toggle svg { display: block; }
+
+        @media (max-width: 880px) {
+            .bh-nav-toggle { display: inline-flex; }
+            .bh-nav-links {
+                position: absolute; top: 64px; left: 0; right: 0;
+                flex-direction: column; align-items: stretch;
+                gap: 0;
+                padding: var(--s2);
+                background: rgba(10, 11, 13, 0.96);
+                border-bottom: 1px solid var(--line);
+                backdrop-filter: blur(16px);
+                -webkit-backdrop-filter: blur(16px);
+                max-height: 0; overflow: hidden;
+                transition: max-height .28s ease, padding .28s ease;
+                padding-top: 0; padding-bottom: 0;
+            }
+            .bh-nav-links.open {
+                max-height: 480px;
+                padding-top: var(--s2); padding-bottom: var(--s2);
+            }
+            .bh-nav-link, .bh-nav-badge {
+                width: 100%; padding: 12px 14px;
+                border-radius: var(--r-sm);
+                font-size: 14px;
+            }
+            .bh-nav-link.active::after { display: none; }
+            .bh-nav-link.active { border-left: 2px solid var(--accent); padding-left: 12px; }
+            .bh-nav-sep { display: none; }
+            .bh-navbar { padding: 0 var(--s2); }
+        }
+
+        /* ── Main layout wrapper ─────────────────────────────────────
+           Every page's content block renders inside .bh-main. */
+        .bh-main {
+            max-width: 1180px;
+            margin: 0 auto;
+            padding: var(--s5) var(--s3) var(--s6);
+            position: relative; z-index: 2;
+        }
+        @media (max-width: 760px) {
+            .bh-main { padding: var(--s4) var(--s2) var(--s5); }
+        }
+
+        /* ── Flash-message alerts (server-rendered inside .bh-main) ── */
+        .bh-alert {
+            display: flex; align-items: center; gap: var(--s1);
+            padding: 10px var(--s2); margin-bottom: var(--s2);
+            border-radius: var(--r-sm);
+            font-family: var(--font-body); font-size: 13px;
+        }
+        .bh-alert .bh-alert-dismiss {
+            margin-left: auto;
+            background: transparent; border: none;
+            color: currentColor; cursor: pointer;
+            font-size: 18px; line-height: 1;
+            padding: 0 4px; opacity: .55;
+            transition: opacity .15s;
+        }
+        .bh-alert .bh-alert-dismiss:hover { opacity: 1; }
+        .bh-alert-success { background: rgba(196,242,68,.08); color: var(--accent); border: 1px solid rgba(196,242,68,.28); }
+        .bh-alert-danger,
+        .bh-alert-error   { background: rgba(255,93,93,.08);  color: var(--red);    border: 1px solid rgba(255,93,93,.28); }
+        .bh-alert-warning { background: rgba(255,216,77,.08); color: var(--yellow); border: 1px solid rgba(255,216,77,.28); }
+        .bh-alert-info    { background: rgba(93,180,255,.08); color: var(--blue);   border: 1px solid rgba(93,180,255,.28); }
+
+        /* ── Toast (bhToast helper below writes into #bh-toast) ────── */
+        .bh-toast {
+            position: fixed; top: 78px; left: 50%;
+            transform: translateX(-50%) translateY(-8px);
+            z-index: 9999;
+            padding: 10px 22px;
+            border-radius: var(--r-pill);
+            font-family: var(--font-body); font-size: 13px; font-weight: 500;
+            pointer-events: none; opacity: 0;
+            transition: opacity .2s, transform .2s;
+            box-shadow: 0 8px 24px rgba(0,0,0,.35);
+        }
+        .bh-toast.show {
+            opacity: 1;
+            transform: translateX(-50%) translateY(0);
+        }
+        .bh-toast-success { background: rgba(196,242,68,.14); color: var(--accent); border: 1px solid rgba(196,242,68,.3); }
+        .bh-toast-error   { background: rgba(255,93,93,.14);  color: var(--red);    border: 1px solid rgba(255,93,93,.3); }
+        .bh-toast-info    { background: rgba(93,180,255,.14); color: var(--blue);   border: 1px solid rgba(93,180,255,.3); }
+    </style>
+</head>
+<body>
+
+<!-- ── Navbar ──────────────────────────────────────────────────────────── -->
+<nav class="bh-navbar">
+    <a href="/" class="bh-brand">
+        <div class="bh-brand-mark">BH</div>
+        <span>BountyHub</span>
+        <span class="bh-brand-tag">/ v2</span>
+    </a>
+
+    <button type="button" class="bh-nav-toggle" id="bh-nav-toggle"
+            aria-label="Toggle navigation" aria-expanded="false" aria-controls="bh-nav-links">
+        <svg width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round">
+            <line x1="3" y1="5"  x2="15" y2="5"/>
+            <line x1="3" y1="9"  x2="15" y2="9"/>
+            <line x1="3" y1="13" x2="15" y2="13"/>
+        </svg>
+    </button>
+
+    <div class="bh-nav-links" id="bh-nav-links">
+        {% set ep = request.endpoint or '' %}
+        <a href="/"               class="bh-nav-link {% if ep in ['home', 'vulnerabilities.home'] %}active{% endif %}">Dashboard</a>
+        <a href="/submit"         class="bh-nav-link {% if ep == 'vulnerabilities.submit' %}active{% endif %}">New finding</a>
+        <a href="/archive"        class="bh-nav-link {% if ep == 'vulnerabilities.archive' %}active{% endif %}">Archive</a>
+        <a href="/scans/history"  class="bh-nav-link {% if ep == 'scans.scan_history' %}active{% endif %}">Scans</a>
+        <a href="/payouts"        class="bh-nav-link {% if ep == 'vulnerabilities.payouts' %}active{% endif %}">Payouts</a>
+        <a href="/timeline"       class="bh-nav-link {% if ep == 'vulnerabilities.timeline' %}active{% endif %}">Timeline</a>
+        {% if current_user.role == 'admin' %}
+        <a href="/admin/features" class="bh-nav-link {% if ep == 'admin.feature_admin' %}active{% endif %}">Admin</a>
+        {% endif %}
+        <div class="bh-nav-sep"></div>
+        <span class="bh-nav-badge">{{ current_user.username }}</span>
+        <a href="/logout" class="bh-nav-link danger">Sign out</a>
+    </div>
+</nav>
+
+<!-- ── Main ────────────────────────────────────────────────────────────── -->
+<div class="bh-main">
+
+    <!-- Flash messages -->
+    {% with messages = get_flashed_messages(with_categories=true) %}
+    {% if messages %}
+        {% for category, message in messages %}
+        <div class="bh-alert bh-alert-{{ category }}">
+            <span>{{ message }}</span>
+            <button type="button" class="bh-alert-dismiss"
+                    onclick="this.parentElement.remove()"
+                    aria-label="Dismiss">&times;</button>
+        </div>
+        {% endfor %}
+    {% endif %}
+    {% endwith %}
+
+    {% block content %}{% endblock %}
+
+</div><!-- /bh-main -->
+
+<!-- Toast container -->
+<div id="bh-toast" class="bh-toast" role="alert" aria-live="polite"></div>
+
+<script>
+// ── Mobile nav toggle ─────────────────────────────────────────────
+(function () {
+    var toggle = document.getElementById('bh-nav-toggle');
+    var links  = document.getElementById('bh-nav-links');
+    if (!toggle || !links) return;
+    toggle.addEventListener('click', function () {
+        var open = links.classList.toggle('open');
+        toggle.setAttribute('aria-expanded', open ? 'true' : 'false');
+    });
+    // Close menu when a link is tapped on mobile
+    links.addEventListener('click', function (e) {
+        var t = e.target;
+        if (t && t.classList && t.classList.contains('bh-nav-link')) {
+            links.classList.remove('open');
+            toggle.setAttribute('aria-expanded', 'false');
+        }
+    });
+}());
+
+function bhToast(msg, type) {
+    const el = document.getElementById('bh-toast');
+    el.textContent = msg;
+    el.className   = 'bh-toast bh-toast-' + (type || 'info');
+    el.classList.add('show');
+    setTimeout(function () { el.classList.remove('show'); }, 3000);
+}
+function renderMarkdown(markdownText) {
+    const rawHtml = marked.parse(markdownText || '');
+    return DOMPurify.sanitize(rawHtml, {
+        ALLOWED_TAGS: [
+            'h1','h2','h3','h4','h5','h6',
+            'p','br','hr',
+            'strong','em','code','pre','blockquote',
+            'ul','ol','li',
+            'table','thead','tbody','tr','th','td',
+            'a'
+        ],
+        ALLOWED_ATTR: ['href', 'target', 'rel', 'class'],
+        FORCE_BODY: true,
+    });
+}
+</script>
+{% block scripts %}{% endblock %}
+</body>
+</html>

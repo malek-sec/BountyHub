@@ -1,0 +1,455 @@
+{% extends "base.html" %}
+{% block title %}New Finding{% endblock %}
+
+{% block head %}
+<style>
+    .sub, .sub * { font-family: var(--font-body); }
+    .sub-section { margin-bottom: var(--s3); }
+
+    .sub-header h1 { font-size: var(--t-2xl); color: var(--ink); margin-top: var(--s1); }
+    .sub-header p  { color: var(--ink-soft); margin-top: 6px; font-size: 15px; }
+
+    /* ── Two-column form layout ──────────────────────────────────── */
+    .form-grid {
+        display: grid; grid-template-columns: repeat(2, 1fr);
+        gap: var(--s3);
+    }
+    @media (max-width: 1080px) { .form-grid { grid-template-columns: 1fr; } }
+
+    .form-card { padding: var(--s4); }
+    .form-card h4 {
+        font-family: var(--font-display); font-weight: 400;
+        font-size: var(--t-md); color: var(--ink);
+        margin-bottom: var(--s3);
+        letter-spacing: -0.3px;
+    }
+
+    /* ── Fields ──────────────────────────────────────────────────── */
+    .field { margin-bottom: var(--s3); }
+    .field label {
+        font-family: var(--font-mono); font-size: 11px;
+        letter-spacing: .05em; text-transform: uppercase;
+        color: var(--ink-soft); margin-bottom: 6px; display: block;
+    }
+    .field .hint {
+        margin-top: 6px; color: var(--ink-faint); font-size: 12px;
+    }
+    .field .hint a { color: var(--accent); border-bottom: 1px dashed var(--accent-dim); }
+    .field .req { color: var(--accent); margin-left: 4px; }
+
+    .row-2 { display: grid; grid-template-columns: 2fr 1fr; gap: var(--s2); }
+
+    /* ── CVSS calculator ─────────────────────────────────────────── */
+    .cvss-metric { margin-bottom: var(--s3); }
+    .cvss-metric-label {
+        font-family: var(--font-mono); font-size: 11px; letter-spacing: .05em;
+        text-transform: uppercase; color: var(--ink-soft);
+        margin-bottom: 10px;
+    }
+    .cvss-options { display: flex; gap: 6px; flex-wrap: wrap; }
+    .cvss-option { flex: 1; min-width: 78px; }
+    .cvss-option input[type="radio"] { display: none; }
+    .cvss-option label {
+        display: block; text-align: center;
+        padding: 10px 8px;
+        background: var(--bg-soft); border: 1px solid var(--line);
+        border-radius: var(--r-sm);
+        font-family: var(--font-body); font-size: 12px; font-weight: 500;
+        color: var(--ink-soft); cursor: pointer; transition: all .18s;
+        text-transform: none; letter-spacing: 0; line-height: 1.4;
+        margin: 0;
+    }
+    .cvss-option label small {
+        display: block; margin-top: 3px;
+        font-size: 10px; color: var(--ink-faint); font-weight: 400;
+        font-family: var(--font-mono); letter-spacing: .04em;
+    }
+    .cvss-option label:hover { border-color: var(--line-bright); color: var(--ink); }
+    .cvss-option input:checked + label {
+        background: var(--glow); border-color: var(--accent-dim);
+        color: var(--accent);
+    }
+    .cvss-option input:checked + label small { color: var(--accent-dim); }
+
+    .cvss-score-display {
+        margin-top: var(--s3); padding: var(--s4);
+        background: var(--bg-soft); border: 1px solid var(--line);
+        border-radius: var(--r-md); text-align: center;
+    }
+    #cvss-score {
+        display: block; margin-bottom: 6px;
+        font-family: var(--font-display); font-weight: 400;
+        font-size: 4rem; line-height: 1; letter-spacing: -0.03em;
+        background: linear-gradient(135deg, var(--accent-dim), var(--accent));
+        -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+        background-clip: text; color: var(--accent);
+    }
+    #cvss-severity {
+        font-family: var(--font-mono); font-size: 11px;
+        letter-spacing: .12em; text-transform: uppercase;
+        color: var(--ink-soft);
+    }
+
+    /* ── PoC file upload ─────────────────────────────────────────── */
+    #poc_image { display: none; }
+    .file-upload-label {
+        display: block; padding: var(--s4) var(--s3);
+        background: var(--bg-soft);
+        border: 1px dashed var(--line-bright); border-radius: var(--r-md);
+        text-align: center; cursor: pointer; color: var(--ink-soft);
+        transition: border-color .2s, background .2s, color .2s;
+    }
+    .file-upload-label:hover {
+        border-color: var(--accent-dim);
+        background: var(--surface);
+        color: var(--ink);
+    }
+    .file-upload-title {
+        font-family: var(--font-body); font-weight: 500; color: var(--ink);
+        margin-bottom: 4px; font-size: 14px;
+    }
+    .file-upload-sub {
+        font-family: var(--font-mono); font-size: 11px; color: var(--ink-faint);
+        letter-spacing: .04em;
+    }
+    #filename-display {
+        display: none; margin-top: var(--s2); text-align: center;
+        font-family: var(--font-mono); font-size: 12px; color: var(--accent);
+    }
+
+    /* ── Submit bar ──────────────────────────────────────────────── */
+    .submit-bar { margin-top: var(--s4); text-align: center; }
+    .submit-bar .btn { padding: 14px 48px; font-size: 15px; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="sub">
+
+    <header class="sub-header sub-section fade-up">
+        <span class="eyebrow">Vulnerabilities</span>
+        <h1>New security finding</h1>
+        <p>Document a vulnerability with CVSS v3.1 scoring.</p>
+    </header>
+
+    <form method="POST" action="/submit" enctype="multipart/form-data">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+
+        <div class="form-grid fade-up d1">
+
+            <!-- ── Left: Finding details ────────────────────────── -->
+            <div class="panel form-card">
+                <h4>Finding details</h4>
+
+                <div class="field">
+                    <label for="f-title">Vulnerability title<span class="req">*</span></label>
+                    <input type="text" name="title" id="f-title"
+                           placeholder="e.g. SQL Injection on /api/login" required>
+                </div>
+
+                <div class="field">
+                    <label for="f-program">Bug bounty program</label>
+                    <select name="program_id" id="f-program">
+                        <option value="">— No program —</option>
+                        {% for p in programs %}
+                        <option value="{{ p.id }}">{{ p.name }}{% if p.platform %} ({{ p.platform }}){% endif %}</option>
+                        {% endfor %}
+                    </select>
+                    <div class="hint">
+                        <a href="{{ url_for('programs.new') }}">+ Add a new program</a>
+                    </div>
+                </div>
+
+                <div class="field">
+                    <label for="f-steps">Steps to reproduce (PoC)<span class="req">*</span></label>
+                    <textarea name="steps" id="f-steps" rows="8"
+                              placeholder="1. Navigate to the login page&#10;2. Enter in the username field: admin' OR '1'='1&#10;3. Submit the form&#10;4. Authentication is bypassed" required></textarea>
+                </div>
+
+                <div class="field">
+                    <label for="f-impact">Business impact<span class="req">*</span></label>
+                    <textarea name="impact" id="f-impact" rows="5"
+                              placeholder="An unauthenticated attacker can access all user accounts and exfiltrate sensitive data…" required></textarea>
+                </div>
+
+                <div class="field">
+                    <label for="f-remediation">Remediation recommendation</label>
+                    <textarea name="remediation" id="f-remediation" rows="5"
+                              placeholder="Use parameterised queries or a safe ORM to prevent SQL injection…"></textarea>
+                </div>
+
+                <div class="field">
+                    <label for="f-tags">Tags <span class="hint" style="display:inline; margin:0;">(comma-separated)</span></label>
+                    <input type="text" name="tags" id="f-tags"
+                           placeholder="e.g. web, authentication, injection">
+                </div>
+
+                <div class="field">
+                    <label for="f-bstatus">Bounty status</label>
+                    <select name="bounty_status" id="f-bstatus">
+                        <option value="unpaid">Unpaid</option>
+                        <option value="pending">Pending</option>
+                        <option value="paid">Paid</option>
+                        <option value="n/a">N/A</option>
+                    </select>
+                </div>
+
+                <div class="field" style="margin-bottom: 0;">
+                    <div class="row-2">
+                        <div>
+                            <label for="f-payout">Payout amount</label>
+                            <input type="number" name="payout" id="f-payout"
+                                   min="0" step="0.01" placeholder="0.00" value="0">
+                        </div>
+                        <div>
+                            <label for="f-currency">Currency</label>
+                            <select name="currency" id="f-currency">
+                                <option value="USD">USD</option>
+                                <option value="EUR">EUR</option>
+                                <option value="GBP">GBP</option>
+                                <option value="SAR">SAR</option>
+                            </select>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ── Right: CVSS + PoC upload ─────────────────────── -->
+            <div>
+                <div class="panel form-card sub-section">
+                    <h4>CVSS v3.1 calculator</h4>
+
+                    <div class="cvss-metric">
+                        <div class="cvss-metric-label">Attack vector (AV)</div>
+                        <div class="cvss-options">
+                            <div class="cvss-option">
+                                <input type="radio" name="av" value="N" id="av_n" checked>
+                                <label for="av_n">Network<small>Remote</small></label>
+                            </div>
+                            <div class="cvss-option">
+                                <input type="radio" name="av" value="A" id="av_a">
+                                <label for="av_a">Adjacent<small>LAN</small></label>
+                            </div>
+                            <div class="cvss-option">
+                                <input type="radio" name="av" value="L" id="av_l">
+                                <label for="av_l">Local<small>Local</small></label>
+                            </div>
+                            <div class="cvss-option">
+                                <input type="radio" name="av" value="P" id="av_p">
+                                <label for="av_p">Physical<small>Physical</small></label>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="cvss-metric">
+                        <div class="cvss-metric-label">Attack complexity (AC)</div>
+                        <div class="cvss-options">
+                            <div class="cvss-option">
+                                <input type="radio" name="ac" value="L" id="ac_l" checked>
+                                <label for="ac_l">Low<small>Easy</small></label>
+                            </div>
+                            <div class="cvss-option">
+                                <input type="radio" name="ac" value="H" id="ac_h">
+                                <label for="ac_h">High<small>Complex</small></label>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="cvss-metric">
+                        <div class="cvss-metric-label">Privileges required (PR)</div>
+                        <div class="cvss-options">
+                            <div class="cvss-option">
+                                <input type="radio" name="pr" value="N" id="pr_n" checked>
+                                <label for="pr_n">None<small>Unauth</small></label>
+                            </div>
+                            <div class="cvss-option">
+                                <input type="radio" name="pr" value="L" id="pr_l">
+                                <label for="pr_l">Low<small>User</small></label>
+                            </div>
+                            <div class="cvss-option">
+                                <input type="radio" name="pr" value="H" id="pr_h">
+                                <label for="pr_h">High<small>Admin</small></label>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="cvss-metric">
+                        <div class="cvss-metric-label">User interaction (UI)</div>
+                        <div class="cvss-options">
+                            <div class="cvss-option">
+                                <input type="radio" name="ui" value="N" id="ui_n" checked>
+                                <label for="ui_n">None<small>No click</small></label>
+                            </div>
+                            <div class="cvss-option">
+                                <input type="radio" name="ui" value="R" id="ui_r">
+                                <label for="ui_r">Required<small>Needs click</small></label>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="cvss-metric">
+                        <div class="cvss-metric-label">Scope (S)</div>
+                        <div class="cvss-options">
+                            <div class="cvss-option">
+                                <input type="radio" name="scope" value="U" id="scope_u" checked>
+                                <label for="scope_u">Unchanged<small>Same</small></label>
+                            </div>
+                            <div class="cvss-option">
+                                <input type="radio" name="scope" value="C" id="scope_c">
+                                <label for="scope_c">Changed<small>Pivot</small></label>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="cvss-metric">
+                        <div class="cvss-metric-label">Confidentiality (C)</div>
+                        <div class="cvss-options">
+                            <div class="cvss-option">
+                                <input type="radio" name="c" value="H" id="c_h" checked>
+                                <label for="c_h">High<small>Full loss</small></label>
+                            </div>
+                            <div class="cvss-option">
+                                <input type="radio" name="c" value="L" id="c_l">
+                                <label for="c_l">Low<small>Partial</small></label>
+                            </div>
+                            <div class="cvss-option">
+                                <input type="radio" name="c" value="N" id="c_n">
+                                <label for="c_n">None<small>No impact</small></label>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="cvss-metric">
+                        <div class="cvss-metric-label">Integrity (I)</div>
+                        <div class="cvss-options">
+                            <div class="cvss-option">
+                                <input type="radio" name="i" value="H" id="i_h" checked>
+                                <label for="i_h">High<small>Full loss</small></label>
+                            </div>
+                            <div class="cvss-option">
+                                <input type="radio" name="i" value="L" id="i_l">
+                                <label for="i_l">Low<small>Partial</small></label>
+                            </div>
+                            <div class="cvss-option">
+                                <input type="radio" name="i" value="N" id="i_n">
+                                <label for="i_n">None<small>No impact</small></label>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="cvss-metric">
+                        <div class="cvss-metric-label">Availability (A)</div>
+                        <div class="cvss-options">
+                            <div class="cvss-option">
+                                <input type="radio" name="a" value="H" id="a_h" checked>
+                                <label for="a_h">High<small>Full loss</small></label>
+                            </div>
+                            <div class="cvss-option">
+                                <input type="radio" name="a" value="L" id="a_l">
+                                <label for="a_l">Low<small>Partial</small></label>
+                            </div>
+                            <div class="cvss-option">
+                                <input type="radio" name="a" value="N" id="a_n">
+                                <label for="a_n">None<small>No impact</small></label>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="cvss-score-display">
+                        <span id="cvss-score">10.0</span>
+                        <div id="cvss-severity">CRITICAL</div>
+                    </div>
+                </div>
+
+                <!-- PoC upload -->
+                <div class="panel form-card">
+                    <h4>PoC screenshot</h4>
+                    <input type="file" name="poc_image" id="poc_image" accept="image/*">
+                    <label for="poc_image" class="file-upload-label">
+                        <div class="file-upload-title">Click to upload screenshot</div>
+                        <div class="file-upload-sub">PNG · JPG · GIF — max 10 MB</div>
+                    </label>
+                    <div id="filename-display"></div>
+                </div>
+            </div>
+        </div>
+
+        <div class="submit-bar">
+            <button type="submit" class="btn btn-primary">Save finding</button>
+        </div>
+    </form>
+
+</div><!-- /sub -->
+{% endblock %}
+
+{% block scripts %}
+<script>
+    // ── CVSS Calculator (unchanged hooks: same names, same DOM ids) ──
+    function calculateCVSS() {
+        var av_map     = {N:0.85, A:0.62, L:0.55, P:0.2};
+        var ac_map     = {L:0.77, H:0.44};
+        var pr_map     = {N:0.85, L:0.62, H:0.27};
+        var ui_map     = {N:0.85, R:0.62};
+        var impact_map = {H:0.56, L:0.22, N:0.0};
+
+        var av    = av_map[document.querySelector('input[name="av"]:checked').value];
+        var ac    = ac_map[document.querySelector('input[name="ac"]:checked').value];
+        var pr    = pr_map[document.querySelector('input[name="pr"]:checked').value];
+        var ui    = ui_map[document.querySelector('input[name="ui"]:checked').value];
+        var c     = impact_map[document.querySelector('input[name="c"]:checked').value];
+        var i     = impact_map[document.querySelector('input[name="i"]:checked').value];
+        var a     = impact_map[document.querySelector('input[name="a"]:checked').value];
+        var scope = document.querySelector('input[name="scope"]:checked').value;
+
+        var exploitability = 8.22 * av * ac * pr * ui;
+        var impact = 1 - ((1-c) * (1-i) * (1-a));
+        if (impact <= 0) return 0.0;
+
+        var impact_score = scope === 'C'
+            ? 7.52 * (impact - 0.029) - 3.25 * Math.pow(impact - 0.02, 15)
+            : 6.42 * impact;
+        if (impact_score <= 0) return 0.0;
+        return Math.min(exploitability + impact_score, 10.0);
+    }
+
+    // Gradients built from theme.css semantic tokens (red/orange/yellow/blue/accent).
+    // Values resolved at runtime so a token change updates the badge automatically.
+    function tokenGradient(fromVar, toVar) {
+        var s = getComputedStyle(document.documentElement);
+        return "linear-gradient(135deg," + s.getPropertyValue(fromVar).trim()
+             + "," + s.getPropertyValue(toVar).trim() + ")";
+    }
+
+    function updateCVSSDisplay() {
+        var score = calculateCVSS().toFixed(1);
+        var severity, gradient;
+        if      (score >= 9.0) { severity = "CRITICAL";      gradient = tokenGradient("--red",    "--red"); }
+        else if (score >= 7.0) { severity = "HIGH";          gradient = tokenGradient("--orange", "--red"); }
+        else if (score >= 4.0) { severity = "MEDIUM";        gradient = tokenGradient("--yellow", "--orange"); }
+        else if (score  > 0.0) { severity = "LOW";           gradient = tokenGradient("--blue",   "--accent-dim"); }
+        else                   { severity = "INFORMATIONAL"; gradient = tokenGradient("--ink-soft","--ink-faint"); }
+
+        var el = document.getElementById("cvss-score");
+        el.textContent = score;
+        el.style.background = gradient;
+        el.style.webkitBackgroundClip = "text";
+        el.style.webkitTextFillColor  = "transparent";
+        el.style.backgroundClip       = "text";
+        document.getElementById("cvss-severity").textContent = severity;
+    }
+
+    document.querySelectorAll('.cvss-option input').forEach(function(inp) {
+        inp.addEventListener('change', updateCVSSDisplay);
+    });
+    updateCVSSDisplay();
+
+    // ── File upload preview ─────────────────────────────────────
+    document.getElementById('poc_image').addEventListener('change', function() {
+        var disp = document.getElementById('filename-display');
+        if (this.files.length > 0) {
+            disp.textContent   = '✓ Selected: ' + this.files[0].name;
+            disp.style.display = 'block';
+        }
+    });
+</script>
+{% endblock %}

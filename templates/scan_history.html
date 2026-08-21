@@ -1,0 +1,596 @@
+{% extends 'base.html' %}
+{% block title %}Scan Results{% endblock %}
+
+{% block head %}
+<style>
+    .scans, .scans * { font-family: var(--font-body); }
+    .scans-section { margin-bottom: var(--s3); }
+    .scans-header h1 { font-size: var(--t-2xl); color: var(--ink); margin-top: var(--s1); }
+    .scans-header p  { color: var(--ink-soft); margin-top: 6px; font-size: 15px; }
+
+    /* ── Scan list table ─────────────────────────────────────────── */
+    .scan-panel { overflow: hidden; }
+    .scan-scroll { overflow-x: auto; }
+    .scan-panel table { min-width: 960px; }
+
+    .col-check    { width: 42px; padding-left: var(--s2) !important; }
+    .col-actions  { text-align: right; }
+    .row-select-scan {
+        appearance: auto; -webkit-appearance: auto;
+        width: 15px; height: 15px; padding: 0; margin: 0;
+        border: 1px solid var(--line-bright); border-radius: 3px;
+        cursor: pointer; accent-color: var(--accent);
+        vertical-align: middle;
+    }
+    .row-select-scan:focus { box-shadow: none; }
+
+    .cell-target  { color: var(--accent); font-family: var(--font-mono); font-size: 13px; }
+    .cell-mono    { color: var(--ink-soft); font-family: var(--font-mono); font-size: 12px; }
+    .cell-date    { color: var(--ink-soft); font-family: var(--font-mono); font-size: 12px; white-space: nowrap; }
+
+    /* ── Status pill (reuses semantic colors) ────────────────────── */
+    .status {
+        display: inline-flex; align-items: center; gap: 6px;
+        padding: 3px 10px; border-radius: var(--r-pill);
+        font-family: var(--font-mono); font-size: 10px; letter-spacing: .08em;
+        text-transform: uppercase; font-weight: 600;
+    }
+    .status.completed { background: rgba(196,242,68,.10); color: var(--accent); border: 1px solid rgba(196,242,68,.28); }
+    .status.running   { background: rgba(93,180,255,.10); color: var(--blue);   border: 1px solid rgba(93,180,255,.28); }
+    .status.failed    { background: rgba(255,93,93,.10);  color: var(--red);    border: 1px solid rgba(255,93,93,.28); }
+    .status.queued    { background: var(--surface-2);      color: var(--ink-soft); border: 1px solid var(--line-bright); }
+    .dot-pulse {
+        display: inline-block; width: 7px; height: 7px; border-radius: 50%;
+        background: currentColor; animation: dp-pulse 1.4s ease-in-out infinite;
+    }
+    @keyframes dp-pulse { 0%,100%{opacity:1;transform:scale(1);} 50%{opacity:.4;transform:scale(1.4);} }
+
+    /* ── Row actions ─────────────────────────────────────────────── */
+    .act {
+        display: inline-flex; align-items: center; justify-content: center;
+        padding: 4px 11px; border-radius: var(--r-pill);
+        border: 1px solid var(--line-bright); background: transparent;
+        color: var(--ink-soft); font-family: var(--font-body); font-size: 12px;
+        font-weight: 500; cursor: pointer; transition: all .2s; text-decoration: none;
+    }
+    .act + .act { margin-left: 6px; }
+    .act:hover { color: var(--ink); border-color: var(--ink-soft); }
+    .act.primary { color: var(--accent); border-color: var(--accent-dim); }
+    .act.primary:hover { background: var(--glow); color: var(--accent); }
+    .err-tag { color: var(--red); font-family: var(--font-mono); font-size: 12px; cursor: help; }
+
+    /* ── Bulk-delete toolbar ─────────────────────────────────────── */
+    .bulk-toolbar {
+        display: flex; align-items: center; gap: var(--s2);
+        padding: 10px var(--s3);
+        background: var(--surface-2); border: 1px solid var(--line);
+        border-radius: var(--r-sm); margin-bottom: var(--s2);
+        font-size: 13px; color: var(--ink-soft);
+    }
+    .bulk-toolbar .count { color: var(--accent); font-family: var(--font-mono); font-weight: 600; }
+    .bulk-toolbar .spacer { flex: 1; }
+    .btn-bulk-delete {
+        background: transparent; color: var(--red);
+        border: 1px solid rgba(255,93,93,.35);
+        border-radius: var(--r-pill); padding: 6px 14px;
+        font-family: var(--font-body); font-size: 13px; cursor: pointer;
+    }
+    .btn-bulk-delete:hover { background: rgba(255,93,93,.10); }
+    .btn-bulk-cancel {
+        background: transparent; color: var(--ink-soft);
+        border: 1px solid var(--line-bright);
+        border-radius: var(--r-pill); padding: 6px 14px;
+        font-family: var(--font-body); font-size: 13px; cursor: pointer;
+    }
+    .btn-bulk-cancel:hover { color: var(--ink); border-color: var(--ink-soft); }
+
+    /* ── Expandable per-scan detail row ──────────────────────────── */
+    .report-row td {
+        padding: 0;
+        border-bottom: 1px solid var(--line);
+        background: var(--bg);
+    }
+    .report-panel {
+        display: none;
+        padding: var(--s4) var(--s4) var(--s3);
+    }
+    .report-panel.open { display: block; }
+
+    .detail-section { margin-bottom: var(--s4); }
+    .detail-section .section-label {
+        font-family: var(--font-mono); font-size: 10px; letter-spacing: .12em;
+        text-transform: uppercase; color: var(--accent);
+        margin-bottom: var(--s1);
+    }
+    .detail-section h4 {
+        font-family: var(--font-display); font-size: var(--t-md);
+        color: var(--ink); font-weight: 400; margin-bottom: var(--s2);
+    }
+
+    /* ── Evidence matrix (compact themed table) ──────────────────── */
+    .evidence {
+        width: 100%; border-collapse: collapse;
+        background: var(--surface); border: 1px solid var(--line);
+        border-radius: var(--r-sm); overflow: hidden;
+    }
+    .evidence th, .evidence td {
+        padding: 10px var(--s2);
+        border-bottom: 1px solid var(--line);
+        text-align: left; font-size: 13px; vertical-align: middle;
+    }
+    .evidence tr:last-child th, .evidence tr:last-child td { border-bottom: none; }
+    .evidence th {
+        font-family: var(--font-mono); font-size: 10px; letter-spacing: .08em;
+        text-transform: uppercase; color: var(--ink-faint);
+        background: var(--surface-2); width: 220px; font-weight: 500;
+    }
+    .evidence td { color: var(--ink); font-family: var(--font-mono); font-size: 12px; }
+    .evidence td .accent { color: var(--accent); }
+
+    /* ── Terminal log block ──────────────────────────────────────── */
+    .term-wrap {
+        background: var(--bg); border: 1px solid var(--line);
+        border-radius: var(--r-sm); overflow: hidden;
+    }
+    .term-bar {
+        padding: 8px 14px; background: var(--bg-soft);
+        border-bottom: 1px solid var(--line);
+        display: flex; align-items: center; gap: 6px;
+    }
+    .term-bar .t-dot { width: 10px; height: 10px; border-radius: 50%; }
+    .term-bar .t-red { background: var(--red); }
+    .term-bar .t-yellow { background: var(--yellow); }
+    .term-bar .t-green { background: var(--accent); }
+    .term-bar .term-label {
+        margin-left: 6px; font-family: var(--font-mono);
+        font-size: 11px; color: var(--ink-faint);
+    }
+    .term {
+        padding: var(--s2) var(--s3);
+        max-height: 320px; overflow-y: auto;
+        font-family: var(--font-mono); font-size: 12px; line-height: 1.75;
+        color: var(--ink-soft);
+    }
+    .term .l         { display: block; padding: 1px 0; margin: 0; }
+    .term .l.success { color: var(--accent); }
+    .term .l.info    { color: var(--blue); }
+    .term .l.warning { color: var(--yellow); }
+    .term .l.error   { color: var(--red); }
+    .term .l.default { color: var(--ink-soft); }
+    .term .empty     { color: var(--ink-faint); font-style: italic; }
+
+    /* ── AI markdown report — dark themed via theme.css tokens ───── */
+    /* Container class hook kept: .report-panel[data-markdown] */
+    .report-panel .md {
+        color: var(--ink); line-height: 1.75; font-size: 14px;
+    }
+    .report-panel .md h1,
+    .report-panel .md h2,
+    .report-panel .md h3,
+    .report-panel .md h4 {
+        font-family: var(--font-display); color: var(--ink); font-weight: 400;
+        letter-spacing: -0.3px; margin: var(--s3) 0 var(--s1);
+    }
+    .report-panel .md h1 { font-size: var(--t-xl); border-bottom: 1px solid var(--line); padding-bottom: var(--s1); }
+    .report-panel .md h2 { font-size: var(--t-lg); color: var(--accent-dim); }
+    .report-panel .md h3 { font-size: var(--t-md); }
+    .report-panel .md p { margin: var(--s1) 0; }
+    .report-panel .md ul,
+    .report-panel .md ol { padding-left: var(--s3); margin: var(--s1) 0; }
+    .report-panel .md li { margin-bottom: 4px; }
+    .report-panel .md strong { color: var(--ink); font-weight: 600; }
+    .report-panel .md em     { color: var(--ink-soft); }
+    .report-panel .md code {
+        background: var(--bg-soft); color: var(--accent);
+        padding: 2px 6px; border-radius: 4px;
+        font-family: var(--font-mono); font-size: 12px;
+    }
+    .report-panel .md pre {
+        background: var(--bg); border: 1px solid var(--line);
+        border-radius: var(--r-sm); padding: var(--s2);
+        overflow-x: auto; margin: var(--s2) 0;
+    }
+    .report-panel .md pre code { background: none; color: var(--ink); padding: 0; font-size: 12px; }
+    .report-panel .md blockquote {
+        border-left: 3px solid var(--accent);
+        padding: var(--s1) var(--s2); color: var(--ink-soft);
+        background: var(--bg-soft); margin: var(--s2) 0;
+    }
+    .report-panel .md hr { border: none; border-top: 1px solid var(--line); margin: var(--s3) 0; }
+    .report-panel .md table { width: 100%; border-collapse: collapse; margin: var(--s2) 0; }
+    .report-panel .md th, .report-panel .md td {
+        padding: 8px 12px; border: 1px solid var(--line);
+        font-size: 13px; text-align: left; text-transform: none; letter-spacing: 0;
+    }
+    .report-panel .md th { background: var(--surface-2); color: var(--accent); font-family: var(--font-mono); font-weight: 500; }
+    .report-panel .md a { color: var(--accent); border-bottom: 1px dashed var(--accent-dim); }
+    .report-panel .md a:hover { border-color: var(--accent); }
+
+    /* ── CVE lookup panel — theming for JS-injected classes ──────── */
+    .cve-panel {
+        display: none; margin-top: var(--s3);
+        background: var(--surface); border: 1px solid var(--line);
+        border-radius: var(--r-sm); padding: var(--s3);
+    }
+    .cve-loading, .cve-empty {
+        color: var(--ink-soft); font-family: var(--font-mono); font-size: 13px;
+    }
+    .cve-error { color: var(--red); font-family: var(--font-mono); font-size: 13px; }
+    .cve-cache-banner {
+        display: inline-block; padding: 4px 12px; margin-bottom: var(--s2);
+        background: var(--bg-soft); color: var(--accent);
+        border: 1px solid var(--line);
+        border-radius: var(--r-pill); font-family: var(--font-mono); font-size: 11px;
+    }
+    .cve-tech-header {
+        color: var(--accent); font-family: var(--font-mono);
+        font-size: 12px; letter-spacing: .08em; text-transform: uppercase;
+        margin: var(--s3) 0 var(--s1);
+        padding-bottom: 4px; border-bottom: 1px solid var(--line);
+    }
+    .cve-table { width: 100%; border-collapse: collapse; font-size: 12px; margin-bottom: var(--s2); }
+    .cve-table th, .cve-table td {
+        padding: 8px 10px; border: 1px solid var(--line);
+        text-align: left; vertical-align: top;
+        font-family: var(--font-mono);
+        text-transform: none; letter-spacing: 0;
+    }
+    .cve-table th { background: var(--surface-2); color: var(--ink-faint); font-weight: 500; }
+    .cve-table td { color: var(--ink-soft); }
+    .cve-table a  { color: var(--accent); }
+    .cve-critical { color: var(--red);    font-weight: 600; }
+    .cve-high     { color: var(--orange); font-weight: 600; }
+    .cve-medium   { color: var(--yellow); }
+    .cve-low      { color: var(--blue); }
+    .cve-unknown  { color: var(--ink-faint); }
+
+    /* ── Empty state ─────────────────────────────────────────────── */
+    .empty {
+        padding: var(--s6) var(--s3); text-align: center; color: var(--ink-soft);
+    }
+    .empty h3 { color: var(--ink); margin: var(--s1) 0; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="scans">
+
+    <header class="scans-header scans-section fade-up">
+        <span class="eyebrow">Reconnaissance</span>
+        <h1>Scan results</h1>
+        <p>Last 50 scans — expand any row for the evidence matrix, AI report, and full log.</p>
+    </header>
+
+    {% if jobs %}
+    <!-- Bulk delete toolbar (visible only when rows are selected) -->
+    <div id="bulk-toolbar-scans" class="bulk-toolbar" style="display:none;">
+        <span><span id="bulk-count-scans" class="count">0</span> selected</span>
+        <div class="spacer"></div>
+        <button class="btn-bulk-cancel" type="button" onclick="clearSelectionScans()">Cancel</button>
+        <button class="btn-bulk-delete" type="button" onclick="bulkDeleteScans()">Delete selected</button>
+    </div>
+
+    <section class="panel scan-panel fade-up d1">
+        <div class="scan-scroll">
+            <table>
+                <thead>
+                    <tr>
+                        <th class="col-check">
+                            <input type="checkbox" id="select-all-scans" class="row-select-scan" title="Select all">
+                        </th>
+                        <th>Target</th>
+                        <th>Status</th>
+                        <th>Hosts found</th>
+                        <th>Hosts scanned</th>
+                        <th>Started</th>
+                        <th>Completed</th>
+                        <th class="col-actions">Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                {% for job in jobs %}
+                    <tr>
+                        <td class="col-check">
+                            <input type="checkbox" class="row-select-scan" value="{{ job.scan_id }}">
+                        </td>
+                        <td class="cell-target">{{ job.target }}</td>
+                        <td>
+                            {% if job.status == 'completed' %}
+                                <span class="status completed">completed</span>
+                            {% elif job.status == 'running' %}
+                                <span class="status running"><span class="dot-pulse"></span>running</span>
+                            {% elif job.status == 'failed' %}
+                                <span class="status failed">failed</span>
+                            {% else %}
+                                <span class="status queued">{{ job.status }}</span>
+                            {% endif %}
+                        </td>
+                        <td class="cell-mono">{{ job.hosts_found or '—' }}</td>
+                        <td class="cell-mono">{{ job.hosts_scanned or '—' }}</td>
+                        <td class="cell-date">
+                            {% if job.created_at %}{{ job.created_at.strftime('%Y-%m-%d %H:%M') }}{% else %}—{% endif %}
+                        </td>
+                        <td class="cell-date">
+                            {% if job.completed_at %}{{ job.completed_at.strftime('%Y-%m-%d %H:%M') }}{% else %}—{% endif %}
+                        </td>
+                        <td class="col-actions">
+                            {% if job.status == 'completed' and job.result %}
+                                <button class="act primary" type="button"
+                                        onclick="toggleReport('{{ job.scan_id }}', this)">
+                                    View report
+                                </button>
+                                <button class="act btn-cve-lookup" type="button"
+                                        data-scan-id="{{ job.scan_id }}"
+                                        onclick="loadCVEs(this)">
+                                    CVE lookup
+                                </button>
+                                <a href="/scans/{{ job.scan_id }}/export-pdf" class="act">PDF</a>
+                            {% elif job.status == 'failed' and job.error %}
+                                <span class="err-tag" title="{{ job.error }}">error</span>
+                            {% endif %}
+                        </td>
+                    </tr>
+
+                    {% if job.status == 'completed' and job.result %}
+                    <tr class="report-row">
+                        <td colspan="8">
+                            <div id="report-{{ job.scan_id }}"
+                                 class="report-panel"
+                                 data-markdown="{{ job.result | e }}">
+
+                                <!-- ── Evidence matrix ─────────────────────────── -->
+                                <div class="detail-section">
+                                    <div class="section-label">Evidence matrix</div>
+                                    <h4>Scan summary</h4>
+                                    <table class="evidence">
+                                        <tbody>
+                                            <tr><th>Target</th>       <td><span class="accent">{{ job.target }}</span></td></tr>
+                                            <tr><th>Scan ID</th>      <td>{{ job.scan_id }}</td></tr>
+                                            <tr><th>Hosts found</th>  <td>{{ job.hosts_found or 0 }}</td></tr>
+                                            <tr><th>Hosts scanned</th><td>{{ job.hosts_scanned or 0 }}</td></tr>
+                                            <tr><th>Stage</th>        <td>{{ job.stage or '—' }}</td></tr>
+                                            <tr><th>Started</th>      <td>{% if job.created_at %}{{ job.created_at.strftime('%Y-%m-%d %H:%M:%S') }} UTC{% else %}—{% endif %}</td></tr>
+                                            <tr><th>Completed</th>    <td>{% if job.completed_at %}{{ job.completed_at.strftime('%Y-%m-%d %H:%M:%S') }} UTC{% else %}—{% endif %}</td></tr>
+                                        </tbody>
+                                    </table>
+                                </div>
+
+                                <!-- ── AI markdown report (marked.js + DOMPurify hook) ── -->
+                                <div class="detail-section">
+                                    <div class="section-label">Claude Sonnet 4.6 · Intelligence report</div>
+                                    <h4>Vulnerability analysis</h4>
+                                    <div class="md" id="md-{{ job.scan_id }}">
+                                        <!-- Populated by renderMarkdown() on DOMContentLoaded -->
+                                    </div>
+                                </div>
+
+                                <!-- ── Scan log terminal ───────────────────────── -->
+                                <div class="detail-section">
+                                    <div class="section-label">Execution log</div>
+                                    <h4>Scan output</h4>
+                                    <div class="term-wrap">
+                                        <div class="term-bar">
+                                            <span class="t-dot t-red"></span>
+                                            <span class="t-dot t-yellow"></span>
+                                            <span class="t-dot t-green"></span>
+                                            <span class="term-label">bountyhub@recon:~$ {{ job.target }}</span>
+                                        </div>
+                                        <div class="term">
+                                            {% set log_lines = job.log|from_json if job.log else [] %}
+                                            {% if log_lines %}
+                                                {% for item in log_lines %}
+                                                    {% if item is string %}
+                                                        {% set text = item %}
+                                                    {% elif item is mapping %}
+                                                        {% if item.label is defined and item.value is defined %}
+                                                            {% set text = '[*] ' ~ item.label ~ ': ' ~ item.value %}
+                                                        {% elif item.msg is defined %}
+                                                            {% set prefix = '[+] ' if item.level == 'success' else '[-] ' if item.level == 'error' else '[!] ' if item.level == 'warning' else '[*] ' %}
+                                                            {% set text = prefix ~ item.msg %}
+                                                        {% else %}
+                                                            {% set text = item|tojson %}
+                                                        {% endif %}
+                                                    {% else %}
+                                                        {% set text = item|string %}
+                                                    {% endif %}
+                                                    {% set cls = 'success' if text.startswith('[+]') else 'error' if text.startswith('[-]') else 'warning' if text.startswith('[!]') else 'info' if text.startswith('[*]') else 'default' %}
+                                                    <p class="l {{ cls }}">{{ text }}</p>
+                                                {% endfor %}
+                                            {% else %}
+                                                <p class="empty">No log lines recorded for this scan.</p>
+                                            {% endif %}
+                                        </div>
+                                    </div>
+                                </div>
+
+                            </div>
+
+                            <div id="cve-panel-{{ job.scan_id }}" class="cve-panel"></div>
+                        </td>
+                    </tr>
+                    {% endif %}
+                {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </section>
+
+    {% else %}
+    <section class="panel scans-section fade-up d1">
+        <div class="empty">
+            <span class="eyebrow">No scans</span>
+            <h3>Nothing here yet</h3>
+            <p>Start a scan from the dashboard.</p>
+        </div>
+    </section>
+    {% endif %}
+
+</div><!-- /scans -->
+{% endblock %}
+
+{% block scripts %}
+<script>
+// ── Render AI markdown reports on load ─────────────────────────────
+// Container hook preserved: .report-panel[data-markdown]  →  .md child.
+document.addEventListener('DOMContentLoaded', function () {
+    document.querySelectorAll('.report-panel[data-markdown]').forEach(function (el) {
+        var mdContainer = el.querySelector('.md');
+        var target = mdContainer || el;
+        target.innerHTML = renderMarkdown(el.dataset.markdown);
+    });
+});
+
+function toggleReport(scanId, btn) {
+    var panel = document.getElementById('report-' + scanId);
+    var open  = panel.classList.toggle('open');
+    btn.textContent = open ? 'Hide report' : 'View report';
+}
+
+function esc(s) {
+    const d = document.createElement('div');
+    d.appendChild(document.createTextNode(String(s || '')));
+    return d.innerHTML;
+}
+
+async function loadCVEs(btn) {
+    const scanId = btn.dataset.scanId;
+    const panel  = document.getElementById('cve-panel-' + scanId);
+
+    if (panel.style.display === 'block') {
+        panel.style.display = 'none';
+        btn.textContent = 'CVE lookup';
+        return;
+    }
+
+    btn.disabled    = true;
+    btn.textContent = 'Querying…';
+    panel.style.display = 'block';
+    panel.innerHTML = '<p class="cve-loading">Fetching CVEs — '
+        + 'uncached results may take ~30s due to NVD rate limiting…</p>';
+
+    try {
+        const res  = await fetch('/api/scan/' + scanId + '/cves');
+        const data = await res.json();
+
+        if (!res.ok) {
+            panel.innerHTML = '<p class="cve-error">' + esc(data.error || 'Request failed') + '</p>';
+            return;
+        }
+
+        if (!data.technologies || data.technologies.length === 0) {
+            panel.innerHTML = '<p class="cve-empty">No versioned technologies found in fingerprint.</p>';
+            return;
+        }
+
+        const cacheBanner = '<div class="cve-cache-banner">'
+            + data.cache_hits + ' / ' + data.total + ' results served from cache</div>';
+
+        panel.innerHTML = cacheBanner + renderCVEResults(data);
+
+    } catch (err) {
+        panel.innerHTML = '<p class="cve-error">' + esc(err.message) + '</p>';
+    } finally {
+        btn.disabled    = false;
+        btn.textContent = 'CVE lookup';
+    }
+}
+
+function renderCVEResults(data) {
+    let html = '';
+    for (const tech of data.technologies) {
+        const cves = (data.cves && data.cves[tech]) || [];
+        html += '<div class="cve-tech-header">' + esc(tech) + '</div>';
+        if (cves.length === 0) {
+            html += '<p class="cve-empty" style="font-size:12px; margin:4px 0 12px;">'
+                  + 'No CVEs found for this version.</p>';
+            continue;
+        }
+        html += '<table class="cve-table"><thead><tr>'
+              + '<th>CVE ID</th><th>CVSS</th><th>Severity</th><th>Published</th><th>Description</th>'
+              + '</tr></thead><tbody>';
+        for (const c of cves) {
+            const sevClass = 'cve-' + (c.severity || 'unknown').toLowerCase();
+            const desc     = (c.description || '').length > 120
+                           ? c.description.slice(0, 120) + '…'
+                           : (c.description || '');
+            const score    = c.cvss_score != null ? c.cvss_score.toFixed(1) : '—';
+            const pub      = (c.published || '').slice(0, 10);
+            html += '<tr>'
+                  + '<td><a href="' + esc(c.url) + '" target="_blank" rel="noopener noreferrer">'
+                  + esc(c.cve_id) + '</a></td>'
+                  + '<td>' + esc(score) + '</td>'
+                  + '<td class="' + esc(sevClass) + '">' + esc(c.severity) + '</td>'
+                  + '<td>' + esc(pub) + '</td>'
+                  + '<td>' + esc(desc) + '</td>'
+                  + '</tr>';
+        }
+        html += '</tbody></table>';
+    }
+    return html;
+}
+</script>
+
+<script>
+(function () {
+    var selectAll = document.getElementById('select-all-scans');
+    if (!selectAll) return;  // no scan rows rendered
+
+    selectAll.addEventListener('change', function () {
+        document.querySelectorAll('tbody .row-select-scan').forEach(function (cb) {
+            cb.checked = selectAll.checked;
+        });
+        updateToolbarScans();
+    });
+
+    document.querySelectorAll('tbody .row-select-scan').forEach(function (cb) {
+        cb.addEventListener('change', updateToolbarScans);
+    });
+
+    function updateToolbarScans() {
+        var checked = document.querySelectorAll('tbody .row-select-scan:checked');
+        var toolbar = document.getElementById('bulk-toolbar-scans');
+        var count   = document.getElementById('bulk-count-scans');
+        if (toolbar) toolbar.style.display = checked.length > 0 ? 'flex' : 'none';
+        if (count)   count.textContent = checked.length;
+    }
+
+    window.clearSelectionScans = function () {
+        document.querySelectorAll('.row-select-scan').forEach(function (cb) { cb.checked = false; });
+        selectAll.checked = false;
+        updateToolbarScans();
+    };
+
+    window.bulkDeleteScans = async function () {
+        var ids = Array.from(document.querySelectorAll('tbody .row-select-scan:checked'))
+                       .map(function (cb) { return cb.value; });
+        if (!ids.length) return;
+
+        if (!confirm('Delete ' + ids.length + ' scan(s)? This cannot be undone.')) return;
+
+        try {
+            var res  = await fetch('/api/bulk_delete', {
+                method : 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body   : JSON.stringify({ ids: ids, type: 'scan' }),
+            });
+            var data = await res.json();
+            if (data.success) {
+                ids.forEach(function (id) {
+                    var cb = document.querySelector('tbody .row-select-scan[value="' + id + '"]');
+                    if (!cb) return;
+                    var mainRow = cb.closest('tr');
+                    if (mainRow) mainRow.remove();
+                    var reportEl = document.getElementById('report-' + id);
+                    if (reportEl) reportEl.closest('tr').remove();
+                });
+                clearSelectionScans();
+            } else {
+                alert('Error: ' + (data.error || 'Delete failed'));
+            }
+        } catch (err) {
+            alert('Network error: ' + err.message);
+        }
+    };
+}());
+</script>
+{% endblock %}

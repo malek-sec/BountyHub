@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>BountyHub — Sign in</title>
+    <link href="{{ url_for('static', filename='css/theme.css') }}" rel="stylesheet">
+    <style>
+        /* Standalone page — no navbar, no sidebar. */
+        body {
+            min-height: 100vh;
+            display: grid; place-items: center;
+            padding: var(--s3);
+            overflow-x: hidden;
+        }
+        /* Override theme.css ambient glow with a symmetric pair for the auth page */
+        body::before {
+            background:
+                radial-gradient(600px circle at 15% 10%, var(--glow), transparent 55%),
+                radial-gradient(500px circle at 90% 95%, rgba(93,180,255,.06), transparent 60%);
+        }
+
+        .auth-card {
+            position: relative; z-index: 2;
+            width: 100%; max-width: 420px;
+            padding: var(--s5) var(--s4);
+            background: var(--surface); border: 1px solid var(--line);
+            border-radius: var(--r-lg);
+            box-shadow: 0 24px 60px rgba(0,0,0,.55);
+        }
+
+        /* Brand */
+        .brand {
+            display: flex; align-items: center; gap: 10px;
+            margin-bottom: var(--s4);
+        }
+        .brand-mark {
+            width: 32px; height: 32px; border-radius: var(--r-sm);
+            display: flex; align-items: center; justify-content: center;
+            background: var(--accent); color: var(--bg);
+            font-family: var(--font-mono); font-weight: 700; font-size: 12px;
+            letter-spacing: -.02em;
+            box-shadow: 0 0 22px var(--glow);
+        }
+        .brand-name {
+            font-family: var(--font-display); font-weight: 400;
+            font-size: var(--t-md); color: var(--ink); letter-spacing: -.02em;
+        }
+        .brand-name .accent { color: var(--accent); }
+
+        /* Title */
+        .auth-title {
+            font-family: var(--font-display); font-weight: 400;
+            font-size: var(--t-xl); color: var(--ink);
+            margin: 0 0 6px; letter-spacing: -.02em;
+        }
+        .auth-sub {
+            color: var(--ink-soft); font-size: 14px;
+            margin-bottom: var(--s4);
+        }
+
+        /* Form */
+        .field { margin-bottom: var(--s2); }
+        .field label {
+            display: block; margin-bottom: 6px;
+            font-family: var(--font-mono); font-size: 11px;
+            letter-spacing: .05em; text-transform: uppercase;
+            color: var(--ink-soft);
+        }
+        .submit { width: 100%; margin-top: var(--s2); justify-content: center; }
+
+        /* Alerts */
+        .alert {
+            padding: 10px 14px; margin-bottom: var(--s2);
+            border-radius: var(--r-sm);
+            font-family: var(--font-mono); font-size: 12px;
+            letter-spacing: .02em;
+        }
+        .alert.error,
+        .alert.danger { background: rgba(255,93,93,.08); color: var(--red); border: 1px solid rgba(255,93,93,.28); }
+        .alert.success { background: rgba(196,242,68,.08); color: var(--accent); border: 1px solid rgba(196,242,68,.28); }
+        .alert.warning { background: rgba(255,216,77,.08); color: var(--yellow); border: 1px solid rgba(255,216,77,.28); }
+        .alert.info    { background: rgba(93,180,255,.08); color: var(--blue);   border: 1px solid rgba(93,180,255,.28); }
+
+        /* Footer */
+        .auth-footer {
+            display: flex; align-items: center; justify-content: center; gap: 8px;
+            margin-top: var(--s4); padding-top: var(--s3);
+            border-top: 1px solid var(--line);
+            font-family: var(--font-mono); font-size: 11px;
+            color: var(--ink-faint); letter-spacing: .08em;
+        }
+        .status-dot {
+            width: 6px; height: 6px; border-radius: 50%;
+            background: var(--accent); box-shadow: 0 0 8px var(--glow);
+            animation: sd-pulse 2.4s ease-in-out infinite;
+        }
+        @keyframes sd-pulse { 0%,100%{opacity:1;} 50%{opacity:.45;} }
+    </style>
+</head>
+<body>
+
+    <div class="auth-card fade-up">
+
+        <div class="brand">
+            <div class="brand-mark">BH</div>
+            <div class="brand-name">Bounty<span class="accent">Hub</span></div>
+        </div>
+
+        <h1 class="auth-title">Welcome back</h1>
+        <p class="auth-sub">Sign in to your security workspace.</p>
+
+        {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}
+            {% for category, message in messages %}
+            <div class="alert {{ category }}">{{ message }}</div>
+            {% endfor %}
+        {% endif %}
+        {% endwith %}
+
+        <form method="POST" action="/login">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+
+            <div class="field">
+                <label for="username">Username</label>
+                <input type="text" name="username" id="username"
+                       placeholder="Enter username" required autofocus autocomplete="username">
+            </div>
+
+            <div class="field">
+                <label for="password">Password</label>
+                <input type="password" name="password" id="password"
+                       placeholder="Enter password" required autocomplete="current-password">
+            </div>
+
+            <button type="submit" class="btn btn-primary submit">Sign in</button>
+        </form>
+
+        <div class="auth-footer">
+            <span class="status-dot"></span>
+            secure · encrypted · local
+        </div>
+
+    </div>
+
+</body>
+</html>

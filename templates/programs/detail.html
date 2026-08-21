@@ -1,0 +1,191 @@
+{% extends "base.html" %}
+{% block title %}{{ program.name }}{% endblock %}
+
+{% block head %}
+<style>
+    .prg-det, .prg-det * { font-family: var(--font-body); }
+    .prg-det-section { margin-bottom: var(--s3); }
+
+    .backlink {
+        display: inline-block; color: var(--ink-soft);
+        font-family: var(--font-mono); font-size: 12px;
+        letter-spacing: .04em; margin-bottom: var(--s1);
+    }
+    .backlink:hover { color: var(--accent); }
+
+    .prg-det-header h1 { font-size: var(--t-2xl); color: var(--ink); margin-top: 4px; }
+    .prg-det-meta {
+        display: flex; align-items: center; gap: var(--s1);
+        flex-wrap: wrap; margin-top: var(--s2);
+    }
+
+    .tag-platform {
+        display: inline-block; padding: 3px 10px;
+        background: var(--bg-soft); color: var(--ink-soft);
+        border: 1px solid var(--line);
+        border-radius: var(--r-sm);
+        font-family: var(--font-mono); font-size: 11px; letter-spacing: .04em;
+    }
+
+    .status {
+        display: inline-flex; align-items: center; gap: 6px;
+        padding: 3px 10px; border-radius: var(--r-pill);
+        font-family: var(--font-mono); font-size: 10px; letter-spacing: .08em;
+        text-transform: uppercase; font-weight: 600;
+    }
+    .status::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+    .status.active { background: rgba(196,242,68,.10); color: var(--accent); border: 1px solid rgba(196,242,68,.28); }
+    .status.paused { background: rgba(255,216,77,.10); color: var(--yellow); border: 1px solid rgba(255,216,77,.28); }
+    .status.closed { background: var(--surface-2);      color: var(--ink-soft); border: 1px solid var(--line-bright); }
+
+    .status.open        { background: rgba(255,93,93,.10);  color: var(--red);    border: 1px solid rgba(255,93,93,.28); }
+    .status.in-progress { background: rgba(255,216,77,.10); color: var(--yellow); border: 1px solid rgba(255,216,77,.28); }
+    .status.resolved    { background: rgba(196,242,68,.10); color: var(--accent); border: 1px solid rgba(196,242,68,.28); }
+
+    .policy-link {
+        color: var(--ink-soft); font-family: var(--font-mono); font-size: 12px;
+        border-bottom: 1px dashed var(--line-bright);
+    }
+    .policy-link:hover { color: var(--accent); border-color: var(--accent-dim); }
+
+    /* Severity summary cards */
+    .sev-card { padding: var(--s3); border-top: 2px solid transparent; }
+    .sev-card .stat-num {
+        font-family: var(--font-display); font-size: var(--t-2xl);
+        line-height: 1; margin: var(--s1) 0 4px; color: var(--ink);
+        letter-spacing: -0.02em;
+    }
+    .sev-card .stat-label {
+        font-family: var(--font-mono); font-size: 11px; letter-spacing: .08em;
+        text-transform: uppercase; color: var(--ink-faint);
+    }
+    .sev-card.crit { border-top-color: var(--red); }
+    .sev-card.crit .stat-num { color: var(--red); }
+    .sev-card.high { border-top-color: var(--orange); }
+    .sev-card.high .stat-num { color: var(--orange); }
+    .sev-card.med  { border-top-color: var(--yellow); }
+    .sev-card.med  .stat-num { color: var(--yellow); }
+    .sev-card.low  { border-top-color: var(--blue); }
+    .sev-card.low  .stat-num { color: var(--blue); }
+
+    .prg-scroll { overflow-x: auto; }
+    .prg-scroll table { min-width: 780px; }
+
+    .cell-title { color: var(--ink); font-weight: 500; max-width: 340px; }
+    .cell-cvss  { font-family: var(--font-mono); font-weight: 600; color: var(--ink); }
+    .cell-date  { color: var(--ink-soft); font-family: var(--font-mono); font-size: 12px; }
+
+    .act {
+        display: inline-flex; padding: 4px 11px;
+        border-radius: var(--r-pill); border: 1px solid var(--line-bright);
+        background: transparent; color: var(--ink-soft);
+        font-family: var(--font-body); font-size: 12px; font-weight: 500;
+        text-decoration: none; transition: all .2s;
+    }
+    .act:hover { color: var(--ink); border-color: var(--ink-soft); }
+
+    .empty { padding: var(--s6) var(--s3); text-align: center; }
+    .empty h3 { color: var(--ink); margin: var(--s1) 0; }
+    .empty p  { color: var(--ink-soft); margin-bottom: var(--s3); }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="prg-det">
+
+    <header class="prg-det-header prg-det-section fade-up">
+        <a href="{{ url_for('programs.index') }}" class="backlink">← Programs</a>
+        <h1>{{ program.name }}</h1>
+        <div class="prg-det-meta">
+            {% if program.platform %}
+                <span class="tag-platform">{{ program.platform }}</span>
+            {% endif %}
+            {% if program.status == 'active' %}
+                <span class="status active">Active</span>
+            {% elif program.status == 'paused' %}
+                <span class="status paused">Paused</span>
+            {% else %}
+                <span class="status closed">{{ program.status or 'closed' }}</span>
+            {% endif %}
+            {% if program.policy_url %}
+                <a href="{{ program.policy_url }}" target="_blank" rel="noopener" class="policy-link">Policy →</a>
+            {% endif %}
+        </div>
+    </header>
+
+    <!-- Severity summary -->
+    <div class="grid grid-4 prg-det-section fade-up d1">
+        <div class="card sev-card crit">
+            <div class="stat-label">Critical</div>
+            <div class="stat-num">{{ counts.Critical }}</div>
+        </div>
+        <div class="card sev-card high">
+            <div class="stat-label">High</div>
+            <div class="stat-num">{{ counts.High }}</div>
+        </div>
+        <div class="card sev-card med">
+            <div class="stat-label">Medium</div>
+            <div class="stat-num">{{ counts.Medium }}</div>
+        </div>
+        <div class="card sev-card low">
+            <div class="stat-label">Low</div>
+            <div class="stat-num">{{ counts.Low }}</div>
+        </div>
+    </div>
+
+    {% if vulns %}
+    <section class="panel fade-up d2">
+        <div class="prg-scroll">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Title</th>
+                        <th>Severity</th>
+                        <th>CVSS</th>
+                        <th>Status</th>
+                        <th>Date</th>
+                        <th style="text-align:right;">Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% set sev_map = {'Critical':'crit','High':'high','Medium':'med','Low':'low'} %}
+                    {% for v in vulns %}
+                    <tr>
+                        <td class="cell-title">{{ v.title }}</td>
+                        <td><span class="sev {{ sev_map.get(v.severity, 'info') }}">{{ v.severity }}</span></td>
+                        <td class="cell-cvss">{{ v.cvss_score }}</td>
+                        <td>
+                            {% if v.status == 'open' %}
+                                <span class="status open">Open</span>
+                            {% elif v.status == 'in-progress' %}
+                                <span class="status in-progress">In progress</span>
+                            {% elif v.status == 'resolved' %}
+                                <span class="status resolved">Resolved</span>
+                            {% else %}
+                                <span class="faint">{{ v.status }}</span>
+                            {% endif %}
+                        </td>
+                        <td class="cell-date">{{ v.date_created.strftime('%Y-%m-%d') }}</td>
+                        <td style="text-align:right;">
+                            <a href="{{ url_for('vulnerabilities.preview', bug_id=v.id) }}" class="act">View</a>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </section>
+
+    {% else %}
+    <section class="panel fade-up d2">
+        <div class="empty">
+            <span class="eyebrow">No findings</span>
+            <h3>Nothing linked yet</h3>
+            <p>Submit a new finding and link it to this program.</p>
+            <a href="{{ url_for('vulnerabilities.submit') }}" class="btn btn-primary">+ Add finding</a>
+        </div>
+    </section>
+    {% endif %}
+
+</div>
+{% endblock %}

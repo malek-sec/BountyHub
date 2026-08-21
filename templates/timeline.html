@@ -1,0 +1,320 @@
+{% extends "base.html" %}
+{% block title %}Activity{% endblock %}
+
+{% block head %}
+<style>
+    .tl, .tl * { font-family: var(--font-body); }
+    .tl-section { margin-bottom: var(--s3); }
+
+    .tl-header h1 { font-size: var(--t-2xl); color: var(--ink); margin-top: var(--s1); }
+    .tl-header p  { color: var(--ink-soft); margin-top: 6px; font-size: 15px; }
+
+    /* ── Summary tiles ───────────────────────────────────────────── */
+    .sum-tile { padding: var(--s3); }
+    .sum-tile .stat-label {
+        font-family: var(--font-mono); font-size: 10px; letter-spacing: .08em;
+        text-transform: uppercase; color: var(--ink-faint);
+    }
+    .sum-tile .stat-num {
+        font-family: var(--font-display); font-size: var(--t-xl);
+        line-height: 1; margin: var(--s1) 0 0; color: var(--ink);
+        letter-spacing: -0.02em;
+    }
+    .sum-tile.crit .stat-num { color: var(--red); }
+    .sum-tile.high .stat-num { color: var(--orange); }
+    .sum-tile.accent .stat-num { color: var(--accent); }
+
+    /* ── Bar chart ───────────────────────────────────────────────── */
+    .chart { padding: var(--s3); }
+    .chart-head {
+        display: flex; align-items: center; justify-content: space-between;
+        margin-bottom: var(--s2); flex-wrap: wrap; gap: var(--s1);
+    }
+    .chart-legend { display: flex; gap: var(--s2); flex-wrap: wrap; }
+    .chart-legend-item {
+        display: flex; align-items: center; gap: 6px;
+        font-family: var(--font-mono); font-size: 10px;
+        color: var(--ink-faint); letter-spacing: .05em; text-transform: uppercase;
+    }
+    .legend-dot { width: 8px; height: 8px; border-radius: 2px; flex-shrink: 0; }
+    .legend-dot.crit { background: var(--red); }
+    .legend-dot.high { background: var(--orange); }
+    .legend-dot.med  { background: var(--yellow); }
+    .legend-dot.low  { background: var(--blue); }
+
+    .chart-scroll { overflow-x: auto; padding-bottom: 4px; }
+    .chart-area {
+        display: flex; align-items: flex-end; gap: 8px;
+        height: 110px;
+        border-bottom: 1px solid var(--line);
+        min-width: max-content;
+    }
+    .chart-col {
+        display: flex; flex-direction: column-reverse;
+        flex: 0 0 28px; gap: 1px;
+    }
+    .bar-seg { width: 100%; border-radius: 2px; min-height: 2px; transition: opacity .15s; }
+    .bar-seg:hover { opacity: .75; }
+    .seg-crit { background: var(--red); }
+    .seg-high { background: var(--orange); }
+    .seg-med  { background: var(--yellow); }
+    .seg-low  { background: var(--blue); }
+
+    .chart-labels { display: flex; gap: 8px; min-width: max-content; margin-top: 6px; }
+    .bar-label-cell {
+        flex: 0 0 28px; text-align: center;
+        font-family: var(--font-mono); font-size: 10px;
+        color: var(--ink-faint); line-height: 1.3;
+    }
+
+    /* ── Filters ─────────────────────────────────────────────────── */
+    .filters {
+        display: grid; grid-template-columns: 1fr 1fr auto 1fr; gap: var(--s2);
+        align-items: end; padding: var(--s3);
+    }
+    @media (max-width: 780px) { .filters { grid-template-columns: 1fr; } }
+    .filters label {
+        font-family: var(--font-mono); font-size: 11px;
+        letter-spacing: .05em; text-transform: uppercase;
+        color: var(--ink-soft); margin-bottom: 6px; display: block;
+    }
+    .filters .count {
+        color: var(--ink-soft); font-family: var(--font-mono);
+        font-size: 12px; letter-spacing: .04em; justify-self: end; padding-bottom: 12px;
+    }
+
+    /* ── Vertical feed ───────────────────────────────────────────── */
+    .feed { position: relative; padding-left: 44px; }
+    .feed::before {
+        content: ""; position: absolute; left: 15px; top: 8px; bottom: 8px; width: 1px;
+        background: linear-gradient(to bottom, var(--line-bright), transparent 95%);
+    }
+    .feed-month {
+        display: flex; align-items: center; gap: var(--s2);
+        margin: var(--s3) 0 var(--s2) -44px;
+    }
+    .feed-month-label {
+        padding-left: 44px;
+        font-family: var(--font-mono); font-size: 11px; letter-spacing: .12em;
+        text-transform: uppercase; color: var(--accent); white-space: nowrap;
+    }
+    .feed-month-rule { flex: 1; height: 1px; background: var(--line); }
+
+    .feed-item { position: relative; margin-bottom: var(--s1); }
+    .feed-dot {
+        position: absolute; left: -36px; top: 50%;
+        transform: translateY(-50%);
+        width: 10px; height: 10px; border-radius: 50%;
+        border: 2px solid var(--bg); z-index: 1;
+    }
+    .feed-dot.crit { background: var(--red);    box-shadow: 0 0 8px rgba(255,93,93,.45); }
+    .feed-dot.high { background: var(--orange); box-shadow: 0 0 8px rgba(255,165,61,.35); }
+    .feed-dot.med  { background: var(--yellow); box-shadow: 0 0 8px rgba(255,216,77,.30); }
+    .feed-dot.low  { background: var(--blue);   box-shadow: 0 0 8px rgba(93,180,255,.30); }
+
+    .feed-card {
+        display: flex; align-items: center; gap: var(--s2);
+        padding: 11px var(--s2);
+        background: var(--surface); border: 1px solid var(--line);
+        border-radius: var(--r-sm);
+        text-decoration: none; color: inherit;
+        transition: border-color .18s, background .18s;
+    }
+    .feed-card:hover { border-color: var(--line-bright); background: var(--surface-2); }
+
+    .feed-date {
+        font-family: var(--font-mono); font-size: 12px;
+        color: var(--ink-faint); min-width: 60px; white-space: nowrap;
+    }
+    .feed-body { flex: 1; min-width: 0; }
+    .feed-title {
+        color: var(--ink); font-size: 14px; font-weight: 500;
+        white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+    .feed-meta {
+        margin-top: 3px; display: flex; align-items: center; gap: var(--s1);
+        color: var(--ink-soft); font-size: 12px;
+    }
+    .feed-meta .prog { color: var(--ink-soft); font-family: var(--font-mono); font-size: 11px; }
+    .feed-payout {
+        color: var(--accent); font-family: var(--font-mono);
+        font-weight: 600; font-size: 13px; white-space: nowrap; flex-shrink: 0;
+    }
+
+    /* ── Empty state ─────────────────────────────────────────────── */
+    .empty {
+        padding: var(--s6) var(--s3); text-align: center;
+    }
+    .empty h3 { color: var(--ink); margin: var(--s1) 0; }
+    .empty p  { color: var(--ink-soft); margin-bottom: var(--s3); }
+</style>
+{% endblock %}
+
+{% block content %}
+{% set month_names = ['', 'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+                       'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'] %}
+<div class="tl">
+
+    <header class="tl-header tl-section fade-up">
+        <span class="eyebrow">Activity</span>
+        <h1>Timeline</h1>
+        <p>Chronological feed of security findings.</p>
+    </header>
+
+    <!-- ── Summary tiles ─────────────────────────────────────────── -->
+    <div class="grid grid-4 tl-section fade-up d1">
+        <div class="card sum-tile">
+            <div class="stat-label">Total findings</div>
+            <div class="stat-num">{{ bugs|length }}</div>
+        </div>
+        <div class="card sum-tile crit">
+            <div class="stat-label">Critical</div>
+            <div class="stat-num">{{ bugs|selectattr('severity','equalto','Critical')|list|length }}</div>
+        </div>
+        <div class="card sum-tile high">
+            <div class="stat-label">High</div>
+            <div class="stat-num">{{ bugs|selectattr('severity','equalto','High')|list|length }}</div>
+        </div>
+        <div class="card sum-tile accent">
+            <div class="stat-label">Total earned</div>
+            <div class="stat-num">${{ "{:,.0f}".format(total_earned) }}</div>
+        </div>
+    </div>
+
+    {% if monthly_data %}
+    <!-- ── Monthly bar chart ─────────────────────────────────────── -->
+    <section class="panel tl-section fade-up d2">
+        <div class="chart">
+            <div class="chart-head">
+                <span class="eyebrow">Monthly findings</span>
+                <div class="chart-legend">
+                    <span class="chart-legend-item"><span class="legend-dot crit"></span>Critical</span>
+                    <span class="chart-legend-item"><span class="legend-dot high"></span>High</span>
+                    <span class="chart-legend-item"><span class="legend-dot med"></span>Medium</span>
+                    <span class="chart-legend-item"><span class="legend-dot low"></span>Low</span>
+                </div>
+            </div>
+            <div class="chart-scroll">
+                <div class="chart-area">
+                    {% for m in monthly_data %}
+                    <div class="chart-col" title="{{ m.month }}: {{ m.total }} finding(s)">
+                        {% if m.Low %}
+                        <div class="bar-seg seg-low"
+                             style="height:{{ [2, (m.Low / max_monthly * 100)|round|int]|max }}px;"
+                             title="Low: {{ m.Low }}"></div>
+                        {% endif %}
+                        {% if m.Medium %}
+                        <div class="bar-seg seg-med"
+                             style="height:{{ [2, (m.Medium / max_monthly * 100)|round|int]|max }}px;"
+                             title="Medium: {{ m.Medium }}"></div>
+                        {% endif %}
+                        {% if m.High %}
+                        <div class="bar-seg seg-high"
+                             style="height:{{ [2, (m.High / max_monthly * 100)|round|int]|max }}px;"
+                             title="High: {{ m.High }}"></div>
+                        {% endif %}
+                        {% if m.Critical %}
+                        <div class="bar-seg seg-crit"
+                             style="height:{{ [2, (m.Critical / max_monthly * 100)|round|int]|max }}px;"
+                             title="Critical: {{ m.Critical }}"></div>
+                        {% endif %}
+                    </div>
+                    {% endfor %}
+                </div>
+                <div class="chart-labels">
+                    {% for m in monthly_data %}
+                    <div class="bar-label-cell">
+                        {{ month_names[m.month[5:]|int] }}<br>
+                        <span style="font-size:9px;">'{{ m.month[2:4] }}</span>
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+        </div>
+    </section>
+    {% endif %}
+
+    <!-- ── Filters ───────────────────────────────────────────────── -->
+    <section class="panel tl-section fade-up d3">
+        <form action="/timeline" method="GET" class="filters">
+            <div>
+                <label for="tl-sev">Severity</label>
+                <select name="severity" id="tl-sev" onchange="this.form.submit()">
+                    <option value="all"      {% if severity_filter == 'all'      %}selected{% endif %}>All severities</option>
+                    <option value="Critical" {% if severity_filter == 'Critical' %}selected{% endif %}>Critical</option>
+                    <option value="High"     {% if severity_filter == 'High'     %}selected{% endif %}>High</option>
+                    <option value="Medium"   {% if severity_filter == 'Medium'   %}selected{% endif %}>Medium</option>
+                    <option value="Low"      {% if severity_filter == 'Low'      %}selected{% endif %}>Low</option>
+                </select>
+            </div>
+            {% if programs %}
+            <div>
+                <label for="tl-prg">Program</label>
+                <select name="program" id="tl-prg" onchange="this.form.submit()">
+                    <option value="">All programs</option>
+                    {% for p in programs %}
+                    <option value="{{ p.id }}" {% if program_filter == p.id|string %}selected{% endif %}>{{ p.name }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            {% endif %}
+            {% if severity_filter != 'all' or program_filter %}
+            <div>
+                <a href="/timeline" class="btn btn-ghost">Clear</a>
+            </div>
+            {% else %}
+            <div></div>
+            {% endif %}
+            <div class="count">{{ bugs|length }} finding{{ '' if bugs|length == 1 else 's' }}</div>
+        </form>
+    </section>
+
+    {% if bugs %}
+    <!-- ── Vertical feed ─────────────────────────────────────────── -->
+    {% set ns = namespace(last_month='') %}
+    {% set sev_map = {'Critical':'crit','High':'high','Medium':'med','Low':'low'} %}
+    <div class="feed fade-up d3">
+        {% for bug in bugs %}
+        {% set this_month = bug.date_created.strftime('%Y-%m') %}
+        {% if this_month != ns.last_month %}
+            {% set ns.last_month = this_month %}
+            {% set mn = this_month[5:]|int %}
+            <div class="feed-month">
+                <span class="feed-month-label">{{ month_names[mn] }} {{ this_month[:4] }}</span>
+                <div class="feed-month-rule"></div>
+            </div>
+        {% endif %}
+        <div class="feed-item">
+            <div class="feed-dot {{ sev_map.get(bug.severity, 'low') }}"></div>
+            <a href="/preview/{{ bug.id }}" class="feed-card">
+                <span class="feed-date">{{ bug.date_created.strftime('%b %d') }}</span>
+                <div class="feed-body">
+                    <div class="feed-title">{{ bug.title }}</div>
+                    <div class="feed-meta">
+                        <span class="sev {{ sev_map.get(bug.severity, 'info') }}">{{ bug.severity }}</span>
+                        {% if bug.program %}
+                            <span class="prog">· {{ bug.program.name }}</span>
+                        {% endif %}
+                    </div>
+                </div>
+                {% if bug.payout and bug.payout > 0 %}
+                <span class="feed-payout">${{ "{:,.0f}".format(bug.payout) }}</span>
+                {% endif %}
+            </a>
+        </div>
+        {% endfor %}
+    </div>
+
+    {% else %}
+    <section class="panel fade-up d3">
+        <div class="empty">
+            <span class="eyebrow">No matches</span>
+            <h3>Nothing matches these filters</h3>
+            <p>Adjust the severity or program filter above.</p>
+            <a href="/timeline" class="btn btn-ghost">Reset filters</a>
+        </div>
+    </section>
+    {% endif %}
+
+</div><!-- /tl -->
+{% endblock %}

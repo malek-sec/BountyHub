@@ -1,0 +1,359 @@
+{% extends "base.html" %}
+{% block title %}Archive{% endblock %}
+
+{% block head %}
+<style>
+    .arch, .arch * { font-family: var(--font-body); }
+    .arch-section { margin-bottom: var(--s3); }
+
+    .arch-header h1 { font-size: var(--t-2xl); color: var(--ink); margin-top: var(--s1); }
+    .arch-header p  { color: var(--ink-soft); margin-top: 6px; font-size: 15px; }
+
+    /* Filter form */
+    .filters {
+        display: grid;
+        grid-template-columns: 2fr repeat(4, 1fr) auto;
+        gap: var(--s2);
+        align-items: end;
+        padding: var(--s3);
+    }
+    @media (max-width: 1080px) { .filters { grid-template-columns: 1fr 1fr 1fr; } .filters .filter-search { grid-column: 1 / -1; } .filters .filter-submit { grid-column: 1 / -1; } }
+    @media (max-width: 640px)  { .filters { grid-template-columns: 1fr; } .filters > * { grid-column: 1; } }
+
+    .filters label { color: var(--ink-soft); font-size: 12px; font-family: var(--font-mono); letter-spacing: .05em; text-transform: uppercase; }
+
+    /* Result count row */
+    .result-count { color: var(--ink-soft); font-size: 13px; padding: 0 var(--s1); }
+    .result-count strong { color: var(--ink); font-weight: 600; }
+    .result-count a { color: var(--ink-soft); border-bottom: 1px dashed var(--line-bright); }
+    .result-count a:hover { color: var(--accent); border-color: var(--accent-dim); }
+
+    /* Table cells */
+    .arch-panel { overflow: hidden; }
+    .arch-panel table { min-width: 900px; }
+    .arch-scroll { overflow-x: auto; }
+    .col-check { width: 42px; padding-left: var(--s2) !important; padding-right: 0 !important; }
+    .col-actions { text-align: right; }
+    .row-select {
+        appearance: auto; -webkit-appearance: auto;
+        width: 15px; height: 15px; padding: 0; margin: 0;
+        border: 1px solid var(--line-bright); border-radius: 3px;
+        cursor: pointer; accent-color: var(--accent);
+        vertical-align: middle;
+    }
+    .row-select:focus { box-shadow: none; }
+
+    .cell-title  { color: var(--ink); font-weight: 500; max-width: 340px; }
+    .cell-title .tags { margin-top: 4px; display: flex; flex-wrap: wrap; gap: 4px; }
+    .cell-title .tag  {
+        font-family: var(--font-mono); font-size: 10px;
+        background: var(--bg-soft); color: var(--ink-soft);
+        border: 1px solid var(--line); border-radius: var(--r-sm);
+        padding: 1px 7px;
+    }
+    .cell-program { color: var(--ink-soft); font-size: 13px; }
+    .cell-cvss    {
+        font-family: var(--font-mono); font-weight: 600;
+        display: inline-flex; align-items: center; gap: 8px;
+    }
+    .cvss-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+    .cvss-dot.crit { background: var(--red); }
+    .cvss-dot.high { background: var(--orange); }
+    .cvss-dot.med  { background: var(--yellow); }
+    .cvss-dot.low  { background: var(--blue); }
+    .cell-payout  { font-family: var(--font-mono); font-weight: 600; color: var(--accent); text-align: right; }
+    .cell-payout.zero { color: var(--ink-faint); font-weight: 400; }
+
+    /* Status pill — reuses sev tokens, distinct from severity via pill radius */
+    .status {
+        display: inline-flex; align-items: center; gap: 6px;
+        padding: 3px 10px; border-radius: var(--r-pill);
+        font-family: var(--font-mono); font-size: 10px; letter-spacing: .08em;
+        text-transform: uppercase; font-weight: 600;
+    }
+    .status::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+    .status.open        { background: rgba(255,93,93,.10);  color: var(--red);    border: 1px solid rgba(255,93,93,.28); }
+    .status.in-progress { background: rgba(255,216,77,.10); color: var(--yellow); border: 1px solid rgba(255,216,77,.28); }
+    .status.resolved    { background: rgba(196,242,68,.10); color: var(--accent); border: 1px solid rgba(196,242,68,.28); }
+
+    /* Action buttons — compact, ghost-styled */
+    .cell-actions .act {
+        display: inline-flex; align-items: center; justify-content: center;
+        padding: 4px 11px; border-radius: var(--r-pill);
+        border: 1px solid var(--line-bright); background: transparent;
+        color: var(--ink-soft); font-family: var(--font-body); font-size: 12px;
+        font-weight: 500; cursor: pointer; transition: all .2s; text-decoration: none;
+    }
+    .cell-actions .act + .act { margin-left: 6px; }
+    .cell-actions .act:hover { color: var(--ink); border-color: var(--ink-soft); }
+    .cell-actions .act.danger { color: var(--red); border-color: rgba(255,93,93,.35); }
+    .cell-actions .act.danger:hover { background: rgba(255,93,93,.08); }
+    .cell-actions form { display: inline; }
+
+    /* Bulk delete toolbar */
+    .bulk-toolbar {
+        display: flex; align-items: center; gap: var(--s2);
+        padding: 10px var(--s3);
+        background: var(--surface-2); border: 1px solid var(--line);
+        border-radius: var(--r-sm); margin-bottom: var(--s2);
+        font-size: 13px; color: var(--ink-soft);
+    }
+    .bulk-toolbar .count { color: var(--accent); font-family: var(--font-mono); font-weight: 600; }
+    .bulk-toolbar .spacer { flex: 1; }
+    .btn-bulk-delete {
+        background: transparent; color: var(--red);
+        border: 1px solid rgba(255,93,93,.35);
+        border-radius: var(--r-pill); padding: 6px 14px;
+        font-family: var(--font-body); font-size: 13px; font-weight: 500; cursor: pointer;
+        transition: background .2s;
+    }
+    .btn-bulk-delete:hover { background: rgba(255,93,93,.10); }
+    .btn-bulk-cancel {
+        background: transparent; color: var(--ink-soft);
+        border: 1px solid var(--line-bright);
+        border-radius: var(--r-pill); padding: 6px 14px;
+        font-family: var(--font-body); font-size: 13px; font-weight: 500; cursor: pointer;
+    }
+    .btn-bulk-cancel:hover { color: var(--ink); border-color: var(--ink-soft); }
+
+    /* Empty state */
+    .empty {
+        padding: var(--s6) var(--s3); text-align: center;
+    }
+    .empty h3 { color: var(--ink); margin-bottom: var(--s1); }
+    .empty p  { color: var(--ink-soft); margin-bottom: var(--s3); }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="arch">
+
+    <header class="arch-header arch-section fade-up">
+        <span class="eyebrow">Vulnerabilities</span>
+        <h1>Archive</h1>
+        <p>Browse, filter, and manage every recorded finding.</p>
+    </header>
+
+    <!-- Filters -->
+    <section class="panel arch-section fade-up d1">
+        <form action="/archive" method="GET" class="filters">
+            <div class="filter-search">
+                <label>Search title</label>
+                <input type="text" name="q" placeholder="Search findings…" value="{{ q }}">
+            </div>
+            <div>
+                <label>Severity</label>
+                <select name="severity">
+                    <option value="all"      {% if severity_filter == 'all'      %}selected{% endif %}>All</option>
+                    <option value="Critical" {% if severity_filter == 'Critical' %}selected{% endif %}>Critical</option>
+                    <option value="High"     {% if severity_filter == 'High'     %}selected{% endif %}>High</option>
+                    <option value="Medium"   {% if severity_filter == 'Medium'   %}selected{% endif %}>Medium</option>
+                    <option value="Low"      {% if severity_filter == 'Low'      %}selected{% endif %}>Low</option>
+                </select>
+            </div>
+            <div>
+                <label>Status</label>
+                <select name="status">
+                    <option value="all"         {% if status_filter == 'all'         %}selected{% endif %}>All</option>
+                    <option value="open"        {% if status_filter == 'open'        %}selected{% endif %}>Open</option>
+                    <option value="in-progress" {% if status_filter == 'in-progress' %}selected{% endif %}>In progress</option>
+                    <option value="resolved"    {% if status_filter == 'resolved'    %}selected{% endif %}>Resolved</option>
+                </select>
+            </div>
+            <div>
+                <label>Program</label>
+                <select name="program">
+                    <option value="">All programs</option>
+                    {% for p in programs %}
+                    <option value="{{ p.id }}" {% if program_filter == p.id|string %}selected{% endif %}>{{ p.name }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div>
+                <label>Sort</label>
+                <select name="sort">
+                    <option value="newest"   {% if sort_by == 'newest'   %}selected{% endif %}>Newest</option>
+                    <option value="oldest"   {% if sort_by == 'oldest'   %}selected{% endif %}>Oldest</option>
+                    <option value="severity" {% if sort_by == 'severity' %}selected{% endif %}>Severity</option>
+                    <option value="title"    {% if sort_by == 'title'    %}selected{% endif %}>Title</option>
+                </select>
+            </div>
+            <div class="filter-submit">
+                <button type="submit" class="btn btn-primary">Filter</button>
+            </div>
+        </form>
+    </section>
+
+    <div class="result-count arch-section">
+        {% if q or severity_filter != 'all' or status_filter != 'all' or program_filter %}
+            Found <strong>{{ bugs|length }}</strong> result{{ '' if bugs|length == 1 else 's' }}
+            &nbsp;·&nbsp; <a href="/archive">Clear filters</a>
+        {% else %}
+            <strong>{{ bugs|length }}</strong> total finding{{ '' if bugs|length == 1 else 's' }}
+        {% endif %}
+    </div>
+
+    {% if bugs %}
+    <!-- Bulk delete toolbar (visible only when rows are selected) -->
+    <div id="bulk-toolbar-vulns" class="bulk-toolbar" style="display:none;">
+        <span><span id="bulk-count-vulns" class="count">0</span> selected</span>
+        <div class="spacer"></div>
+        <button class="btn-bulk-cancel" type="button" onclick="clearSelection('vulns')">Cancel</button>
+        <button class="btn-bulk-delete" type="button" onclick="bulkDelete('vulns')">Delete selected</button>
+    </div>
+
+    <section class="panel arch-panel fade-up d2">
+        <div class="arch-scroll">
+            <table>
+                <thead>
+                    <tr>
+                        <th class="col-check">
+                            <input type="checkbox" id="select-all-vulns" class="row-select" title="Select all">
+                        </th>
+                        <th>Title</th>
+                        <th>Severity</th>
+                        <th>Program</th>
+                        <th>CVSS</th>
+                        <th>Status</th>
+                        <th style="text-align:right;">Payout</th>
+                        <th class="col-actions">Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% set sev_map = {'Critical':'crit','High':'high','Medium':'med','Low':'low'} %}
+                    {% for bug in bugs %}
+                    <tr>
+                        <td class="col-check">
+                            <input type="checkbox" class="row-select" value="{{ bug.id }}">
+                        </td>
+                        <td class="cell-title">
+                            <a href="/preview/{{ bug.id }}" style="color:var(--ink);">{{ bug.title }}</a>
+                            {% if bug.tags %}
+                                {% set tags = bug.tags|from_json %}
+                                {% if tags %}
+                                <div class="tags">
+                                    {% for tag in tags[:3] %}<span class="tag">{{ tag }}</span>{% endfor %}
+                                </div>
+                                {% endif %}
+                            {% endif %}
+                        </td>
+                        <td><span class="sev {{ sev_map.get(bug.severity, 'info') }}">{{ bug.severity }}</span></td>
+                        <td class="cell-program">
+                            {% if bug.program %}{{ bug.program.name }}{% else %}<span class="faint">—</span>{% endif %}
+                        </td>
+                        <td>
+                            {% set cvss_cls = 'crit' if bug.cvss_score >= 9.0 else
+                                              'high' if bug.cvss_score >= 7.0 else
+                                              'med'  if bug.cvss_score >= 4.0 else 'low' %}
+                            <span class="cell-cvss">
+                                <span class="cvss-dot {{ cvss_cls }}"></span>{{ bug.cvss_score }}
+                            </span>
+                        </td>
+                        <td>
+                            {% if bug.status == 'open' %}
+                            <span class="status open">Open</span>
+                            {% elif bug.status == 'in-progress' %}
+                            <span class="status in-progress">In progress</span>
+                            {% elif bug.status == 'resolved' %}
+                            <span class="status resolved">Resolved</span>
+                            {% else %}
+                            <span class="faint">{{ bug.status }}</span>
+                            {% endif %}
+                        </td>
+                        <td class="cell-payout {% if not bug.payout or bug.payout == 0 %}zero{% endif %}">
+                            {% if bug.payout and bug.payout > 0 %}
+                                ${{ "{:,.0f}".format(bug.payout) }}
+                            {% else %}—{% endif %}
+                        </td>
+                        <td class="cell-actions">
+                            <a href="/preview/{{ bug.id }}" class="act" title="View details">View</a>
+                            {% if feature_enabled('pdf_export') %}
+                            <a href="/export/{{ bug.id }}" class="act" title="Download PDF">PDF</a>
+                            {% endif %}
+                            <form method="POST" action="/vulnerability/{{ bug.id }}/delete"
+                                  onsubmit="return confirm('Delete this vulnerability permanently?\n\n{{ bug.title }}\n\nThis action cannot be undone.');">
+                                <button type="submit" class="act danger" title="Delete">Delete</button>
+                            </form>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </section>
+
+    {% else %}
+    <section class="panel arch-section fade-up d2">
+        <div class="empty">
+            <span class="eyebrow">No results</span>
+            <h3 style="margin-top: var(--s1);">Nothing matches these filters</h3>
+            <p>Try adjusting your search criteria — or clear filters to see everything.</p>
+            <a href="/archive" class="btn btn-ghost">Reset filters</a>
+        </div>
+    </section>
+    {% endif %}
+
+</div><!-- /arch -->
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function () {
+    var selectAll = document.getElementById('select-all-vulns');
+    if (!selectAll) return;  // no rows rendered
+
+    selectAll.addEventListener('change', function () {
+        document.querySelectorAll('tbody .row-select').forEach(function (cb) {
+            cb.checked = selectAll.checked;
+        });
+        updateToolbar('vulns');
+    });
+
+    document.querySelectorAll('tbody .row-select').forEach(function (cb) {
+        cb.addEventListener('change', function () { updateToolbar('vulns'); });
+    });
+
+    function updateToolbar(scope) {
+        var checked = document.querySelectorAll('tbody .row-select:checked');
+        var toolbar = document.getElementById('bulk-toolbar-' + scope);
+        var count   = document.getElementById('bulk-count-' + scope);
+        toolbar.style.display = checked.length > 0 ? 'flex' : 'none';
+        count.textContent = checked.length;
+    }
+
+    window.clearSelection = function (scope) {
+        document.querySelectorAll('.row-select').forEach(function (cb) { cb.checked = false; });
+        selectAll.checked = false;
+        updateToolbar(scope);
+    };
+
+    window.bulkDelete = async function (scope) {
+        var ids = Array.from(document.querySelectorAll('tbody .row-select:checked'))
+                       .map(function (cb) { return cb.value; });
+        if (!ids.length) return;
+
+        if (!confirm('Delete ' + ids.length + ' item(s)? This cannot be undone.')) return;
+
+        try {
+            var res  = await fetch('/api/bulk_delete', {
+                method : 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body   : JSON.stringify({ ids: ids, type: 'vulnerability' }),
+            });
+            var data = await res.json();
+            if (data.success) {
+                ids.forEach(function (id) {
+                    var cb = document.querySelector('tbody .row-select[value="' + id + '"]');
+                    if (cb) cb.closest('tr').remove();
+                });
+                clearSelection(scope);
+            } else {
+                alert('Error: ' + (data.error || 'Delete failed'));
+            }
+        } catch (err) {
+            alert('Network error: ' + err.message);
+        }
+    };
+}());
+</script>
+{% endblock %}

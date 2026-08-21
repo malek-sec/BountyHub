@@ -1,0 +1,380 @@
+{% extends "base.html" %}
+{% block title %}Payouts{% endblock %}
+
+{% block head %}
+<style>
+    .pay, .pay * { font-family: var(--font-body); }
+    .pay-section { margin-bottom: var(--s3); }
+
+    .pay-header h1 { font-size: var(--t-2xl); color: var(--ink); margin-top: var(--s1); }
+    .pay-header p  { color: var(--ink-soft); margin-top: 6px; font-size: 15px; }
+
+    /* ── Summary cards ───────────────────────────────────────────── */
+    .sum-card { padding: var(--s3); }
+    .sum-card .stat-label {
+        font-family: var(--font-mono); font-size: 11px; letter-spacing: .08em;
+        text-transform: uppercase; color: var(--ink-faint);
+    }
+    .sum-card .stat-num {
+        font-family: var(--font-display); font-size: var(--t-2xl);
+        line-height: 1; margin: var(--s2) 0 4px; color: var(--ink);
+        letter-spacing: -0.02em;
+    }
+    .sum-card.accent .stat-num { color: var(--accent); }
+    .sum-card .stat-sub { color: var(--ink-faint); font-size: 12px; font-family: var(--font-mono); }
+
+    /* ── Breakdown (by-severity + by-program) ────────────────────── */
+    .breakdown { display: grid; grid-template-columns: 1fr 1fr; gap: var(--s3); }
+    @media (max-width: 900px) { .breakdown { grid-template-columns: 1fr; } }
+
+    .brk { padding: 0; }
+    .brk-body { padding: var(--s2) 0; }
+    .brk-row {
+        display: flex; align-items: center; gap: var(--s2);
+        padding: 10px var(--s3);
+        border-bottom: 1px solid var(--line);
+    }
+    .brk-row:last-child { border-bottom: none; }
+    .brk-label { flex: 1; color: var(--ink-soft); font-size: 14px; }
+    .brk-value { color: var(--accent); font-family: var(--font-mono); font-weight: 600; }
+    .brk-empty { padding: var(--s3); text-align: center; color: var(--ink-faint); font-size: 13px; }
+
+    .sev-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+    .sev-dot.crit { background: var(--red); }
+    .sev-dot.high { background: var(--orange); }
+    .sev-dot.med  { background: var(--yellow); }
+    .sev-dot.low  { background: var(--blue); }
+
+    /* ── Payouts table ───────────────────────────────────────────── */
+    .pay-panel { overflow: hidden; }
+    .pay-scroll { overflow-x: auto; }
+    .pay-panel table { min-width: 860px; }
+
+    .cell-title { color: var(--ink); font-weight: 500; max-width: 320px; }
+    .cell-title a { color: var(--ink); }
+    .cell-title a:hover { color: var(--accent); }
+    .cell-mono  { color: var(--ink-soft); font-family: var(--font-mono); font-size: 12px; }
+    .cell-currency { color: var(--ink-soft); font-family: var(--font-mono); font-size: 12px; }
+    .cell-payout {
+        color: var(--accent); font-family: var(--font-mono);
+        font-weight: 600; text-align: right;
+    }
+    .cell-payout.zero { color: var(--ink-faint); font-weight: 400; }
+
+    /* Bounty status pill */
+    .bstat {
+        display: inline-flex; align-items: center; gap: 6px;
+        padding: 3px 10px; border-radius: var(--r-pill);
+        font-family: var(--font-mono); font-size: 10px; letter-spacing: .08em;
+        text-transform: uppercase; font-weight: 600;
+    }
+    .bstat::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+    .bstat.paid    { background: rgba(196,242,68,.10); color: var(--accent); border: 1px solid rgba(196,242,68,.28); }
+    .bstat.pending { background: rgba(255,216,77,.10); color: var(--yellow); border: 1px solid rgba(255,216,77,.28); }
+    .bstat.unpaid  { background: rgba(255,93,93,.10);  color: var(--red);    border: 1px solid rgba(255,93,93,.28); }
+    .bstat.na      { background: var(--surface-2);      color: var(--ink-soft); border: 1px solid var(--line-bright); }
+
+    /* Editor row (inline form) */
+    .editor-row td {
+        padding: 0;
+        background: var(--surface-2);
+        border-bottom: 1px solid var(--line);
+    }
+    .editor {
+        display: none;
+        padding: var(--s3);
+    }
+    .editor.open { display: flex; }
+    .editor {
+        gap: var(--s2); align-items: end; flex-wrap: wrap;
+    }
+    .editor .fld { display: flex; flex-direction: column; gap: 4px; }
+    .editor .fld label {
+        font-family: var(--font-mono); font-size: 10px;
+        letter-spacing: .05em; text-transform: uppercase; color: var(--ink-faint);
+    }
+    .editor .fld input,
+    .editor .fld select { min-width: 140px; }
+    .editor .actions { display: flex; gap: var(--s1); }
+    .editor .status-msg {
+        font-family: var(--font-mono); font-size: 12px;
+        color: var(--ink-soft); align-self: center;
+    }
+    .editor .status-msg.ok  { color: var(--accent); }
+    .editor .status-msg.err { color: var(--red); }
+
+    .act {
+        display: inline-flex; padding: 4px 11px;
+        border-radius: var(--r-pill); border: 1px solid var(--line-bright);
+        background: transparent; color: var(--ink-soft);
+        font-family: var(--font-body); font-size: 12px; font-weight: 500;
+        cursor: pointer; transition: all .2s; text-decoration: none;
+    }
+    .act:hover { color: var(--ink); border-color: var(--ink-soft); }
+    .act.primary { color: var(--accent); border-color: var(--accent-dim); }
+    .act.primary:hover { background: var(--glow); }
+
+    .empty {
+        padding: var(--s6) var(--s3); text-align: center;
+    }
+    .empty h3 { color: var(--ink); margin: var(--s1) 0; }
+    .empty p  { color: var(--ink-soft); }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="pay">
+
+    <header class="pay-header pay-section fade-up">
+        <span class="eyebrow">Bounties</span>
+        <h1>Payouts</h1>
+        <p>Earnings summary and per-finding bounty status. Edit inline to update.</p>
+    </header>
+
+    <!-- ── Summary cards ─────────────────────────────────────────── -->
+    <div class="grid grid-3 pay-section fade-up d1">
+        <div class="card sum-card accent">
+            <div class="stat-label">Total earned</div>
+            <div class="stat-num" id="sum-total">${{ "{:,.0f}".format(summary.total_earned) }}</div>
+            <div class="stat-sub">Paid to date</div>
+        </div>
+        <div class="card sum-card">
+            <div class="stat-label">Pending</div>
+            <div class="stat-num" id="sum-pending">${{ "{:,.0f}".format(summary.pending_total) }}</div>
+            <div class="stat-sub" id="sum-pending-count">{{ summary.pending_count }} finding{{ '' if summary.pending_count == 1 else 's' }}</div>
+        </div>
+        <div class="card sum-card">
+            <div class="stat-label">Unpaid</div>
+            <div class="stat-num" id="sum-unpaid">${{ "{:,.0f}".format(summary.unpaid_total) }}</div>
+            <div class="stat-sub" id="sum-unpaid-count">{{ summary.unpaid_count }} finding{{ '' if summary.unpaid_count == 1 else 's' }}</div>
+        </div>
+    </div>
+
+    <!-- ── Breakdown ─────────────────────────────────────────────── -->
+    <div class="breakdown pay-section fade-up d2">
+        <section class="panel brk">
+            <div class="panel-head">
+                <div><span class="eyebrow">Paid</span><h3 style="margin-top:4px;">By severity</h3></div>
+            </div>
+            <div class="brk-body">
+                {% set sev_items = [('Critical','crit'),('High','high'),('Medium','med'),('Low','low')] %}
+                {% for label, cls in sev_items %}
+                <div class="brk-row">
+                    <span class="sev-dot {{ cls }}"></span>
+                    <span class="brk-label">{{ label }}</span>
+                    <span class="brk-value">${{ "{:,.0f}".format(summary.by_severity[label]) }}</span>
+                </div>
+                {% endfor %}
+            </div>
+        </section>
+
+        <section class="panel brk">
+            <div class="panel-head">
+                <div><span class="eyebrow">Paid</span><h3 style="margin-top:4px;">By program</h3></div>
+            </div>
+            <div class="brk-body">
+                {% if summary.by_program %}
+                    {% for p in summary.by_program %}
+                    <div class="brk-row">
+                        <span class="brk-label">{{ p.name }}</span>
+                        <span class="brk-value">${{ "{:,.0f}".format(p.total) }}</span>
+                    </div>
+                    {% endfor %}
+                {% else %}
+                    <div class="brk-empty">No paid findings linked to a program yet.</div>
+                {% endif %}
+            </div>
+        </section>
+    </div>
+
+    <!-- ── Payouts table ─────────────────────────────────────────── -->
+    {% if bugs %}
+    <section class="panel pay-panel fade-up d3">
+        <div class="panel-head">
+            <div><span class="eyebrow">Findings</span><h3 style="margin-top:4px;">Bounty tracker</h3></div>
+        </div>
+        <div class="pay-scroll">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Title</th>
+                        <th>Program</th>
+                        <th>Status</th>
+                        <th>Currency</th>
+                        <th style="text-align:right;">Payout</th>
+                        <th style="text-align:right;">Edit</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for bug in bugs %}
+                    <tr>
+                        <td class="cell-title">
+                            <a href="/preview/{{ bug.id }}">{{ bug.title }}</a>
+                        </td>
+                        <td class="cell-mono">
+                            {% if bug.program %}{{ bug.program.name }}{% else %}<span class="faint">—</span>{% endif %}
+                        </td>
+                        <td>
+                            {% set bstat_cls = {'paid':'paid','pending':'pending','unpaid':'unpaid','n/a':'na'}.get(bug.bounty_status, 'na') %}
+                            <span class="bstat {{ bstat_cls }}" id="bstat-{{ bug.id }}">{{ bug.bounty_status }}</span>
+                        </td>
+                        <td class="cell-currency" id="currency-{{ bug.id }}">{{ bug.currency }}</td>
+                        <td class="cell-payout {% if not bug.payout or bug.payout == 0 %}zero{% endif %}" id="payout-{{ bug.id }}">
+                            {% if bug.payout and bug.payout > 0 %}
+                                ${{ "{:,.2f}".format(bug.payout) }}
+                            {% else %}—{% endif %}
+                        </td>
+                        <td style="text-align:right;">
+                            <button type="button" class="act" onclick="togglePayoutEditor('{{ bug.id }}', this)">Edit</button>
+                        </td>
+                    </tr>
+                    <tr class="editor-row">
+                        <td colspan="6">
+                            <form class="editor" id="editor-{{ bug.id }}"
+                                  data-bug-id="{{ bug.id }}"
+                                  onsubmit="return submitPayout(event, '{{ bug.id }}')">
+                                <div class="fld">
+                                    <label for="pay-amt-{{ bug.id }}">Payout</label>
+                                    <input type="number" id="pay-amt-{{ bug.id }}" name="payout"
+                                           min="0" step="0.01" value="{{ bug.payout or 0 }}">
+                                </div>
+                                <div class="fld">
+                                    <label for="pay-cur-{{ bug.id }}">Currency</label>
+                                    <select id="pay-cur-{{ bug.id }}" name="currency">
+                                        <option value="USD" {% if bug.currency == 'USD' %}selected{% endif %}>USD</option>
+                                        <option value="EUR" {% if bug.currency == 'EUR' %}selected{% endif %}>EUR</option>
+                                        <option value="GBP" {% if bug.currency == 'GBP' %}selected{% endif %}>GBP</option>
+                                        <option value="SAR" {% if bug.currency == 'SAR' %}selected{% endif %}>SAR</option>
+                                    </select>
+                                </div>
+                                <div class="fld">
+                                    <label for="pay-bs-{{ bug.id }}">Bounty status</label>
+                                    <select id="pay-bs-{{ bug.id }}" name="bounty_status">
+                                        <option value="unpaid"  {% if bug.bounty_status == 'unpaid'  %}selected{% endif %}>Unpaid</option>
+                                        <option value="pending" {% if bug.bounty_status == 'pending' %}selected{% endif %}>Pending</option>
+                                        <option value="paid"    {% if bug.bounty_status == 'paid'    %}selected{% endif %}>Paid</option>
+                                        <option value="n/a"     {% if bug.bounty_status == 'n/a'     %}selected{% endif %}>N/A</option>
+                                    </select>
+                                </div>
+                                <div class="actions">
+                                    <button type="submit" class="act primary">Save</button>
+                                    <button type="button" class="act" onclick="togglePayoutEditor('{{ bug.id }}')">Cancel</button>
+                                </div>
+                                <div class="status-msg" id="msg-{{ bug.id }}"></div>
+                            </form>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </section>
+    {% else %}
+    <section class="panel fade-up d3">
+        <div class="empty">
+            <span class="eyebrow">No bounties</span>
+            <h3>Nothing to track</h3>
+            <p>Submit findings and set their bounty status to see payouts here.</p>
+        </div>
+    </section>
+    {% endif %}
+
+</div><!-- /pay -->
+{% endblock %}
+
+{% block scripts %}
+<script>
+// ── Inline editor toggle ──────────────────────────────────────────
+function togglePayoutEditor(bugId, btn) {
+    var editor = document.getElementById('editor-' + bugId);
+    if (!editor) return;
+    var open = editor.classList.toggle('open');
+    if (btn && btn.textContent) btn.textContent = open ? 'Close' : 'Edit';
+    // clear stale status message on open
+    var msg = document.getElementById('msg-' + bugId);
+    if (msg && open) { msg.textContent = ''; msg.className = 'status-msg'; }
+}
+
+// ── Save handler — POSTs to preserved API hook ────────────────────
+// Endpoint: POST /api/vulnerability/<bug_id>/payout
+// Body: { payout: Number, currency: String, bounty_status: String }
+async function submitPayout(event, bugId) {
+    event.preventDefault();
+    var form = document.getElementById('editor-' + bugId);
+    var msg  = document.getElementById('msg-' + bugId);
+
+    var body = {
+        payout       : parseFloat(form.querySelector('[name="payout"]').value) || 0,
+        currency     : form.querySelector('[name="currency"]').value,
+        bounty_status: form.querySelector('[name="bounty_status"]').value,
+    };
+
+    msg.textContent = 'Saving…';
+    msg.className   = 'status-msg';
+
+    try {
+        var res  = await fetch('/api/vulnerability/' + bugId + '/payout', {
+            method : 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body   : JSON.stringify(body),
+        });
+        var data = await res.json();
+
+        if (!res.ok || !data.success) {
+            msg.textContent = data.error || ('HTTP ' + res.status);
+            msg.className   = 'status-msg err';
+            return false;
+        }
+
+        // Reflect the update in the row without a full reload
+        var payoutCell = document.getElementById('payout-' + bugId);
+        var currCell   = document.getElementById('currency-' + bugId);
+        var bstatCell  = document.getElementById('bstat-' + bugId);
+
+        if (payoutCell) {
+            var v = Number(data.payout);
+            payoutCell.textContent = v > 0 ? '$' + v.toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:2}) : '—';
+            payoutCell.classList.toggle('zero', !(v > 0));
+        }
+        if (currCell)  currCell.textContent  = data.currency;
+        if (bstatCell) {
+            bstatCell.textContent = data.bounty_status;
+            var map = {paid:'paid', pending:'pending', unpaid:'unpaid'};
+            bstatCell.className = 'bstat ' + (map[data.bounty_status] || 'na');
+        }
+
+        msg.textContent = '✓ Saved';
+        msg.className   = 'status-msg ok';
+
+        // Refresh summary cards from the earnings API
+        refreshEarningsSummary();
+
+    } catch (err) {
+        msg.textContent = 'Network error: ' + err.message;
+        msg.className   = 'status-msg err';
+    }
+    return false;
+}
+
+// ── Refresh summary cards — preserved earnings API hook ───────────
+// Endpoint: GET /api/stats/earnings  →  PayoutService.earnings_summary()
+function refreshEarningsSummary() {
+    fetch('/api/stats/earnings')
+        .then(function (r) { return r.ok ? r.json() : null; })
+        .then(function (s) {
+            if (!s) return;
+            var fmt = function (n) {
+                return '$' + Number(n || 0).toLocaleString(undefined, {maximumFractionDigits: 0});
+            };
+            var t = document.getElementById('sum-total');   if (t) t.textContent = fmt(s.total_earned);
+            var p = document.getElementById('sum-pending'); if (p) p.textContent = fmt(s.pending_total);
+            var u = document.getElementById('sum-unpaid');  if (u) u.textContent = fmt(s.unpaid_total);
+            var pc = document.getElementById('sum-pending-count');
+            var uc = document.getElementById('sum-unpaid-count');
+            if (pc) pc.textContent = s.pending_count + ' finding' + (s.pending_count === 1 ? '' : 's');
+            if (uc) uc.textContent = s.unpaid_count  + ' finding' + (s.unpaid_count  === 1 ? '' : 's');
+        })
+        .catch(function () {});
+}
+</script>
+{% endblock %}

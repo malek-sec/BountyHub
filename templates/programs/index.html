@@ -1,0 +1,133 @@
+{% extends "base.html" %}
+{% block title %}Programs{% endblock %}
+
+{% block head %}
+<style>
+    .prg, .prg * { font-family: var(--font-body); }
+    .prg-section { margin-bottom: var(--s3); }
+
+    .prg-header {
+        display: flex; justify-content: space-between; align-items: flex-end;
+        flex-wrap: wrap; gap: var(--s2);
+    }
+    .prg-header h1 { font-size: var(--t-2xl); color: var(--ink); margin-top: var(--s1); }
+    .prg-header p  { color: var(--ink-soft); margin-top: 6px; font-size: 15px; }
+
+    .prg-panel { overflow: hidden; }
+    .prg-scroll { overflow-x: auto; }
+    .prg-panel table { min-width: 780px; }
+
+    .cell-name a { color: var(--ink); font-weight: 500; }
+    .cell-name a:hover { color: var(--accent); }
+    .cell-count { color: var(--accent); font-family: var(--font-mono); font-weight: 600; }
+    .cell-date  { color: var(--ink-soft); font-family: var(--font-mono); font-size: 12px; white-space: nowrap; }
+
+    .tag-platform {
+        display: inline-block; padding: 2px 9px;
+        background: var(--bg-soft); color: var(--ink-soft);
+        border: 1px solid var(--line);
+        border-radius: var(--r-sm);
+        font-family: var(--font-mono); font-size: 11px; letter-spacing: .04em;
+    }
+
+    .status {
+        display: inline-flex; align-items: center; gap: 6px;
+        padding: 3px 10px; border-radius: var(--r-pill);
+        font-family: var(--font-mono); font-size: 10px; letter-spacing: .08em;
+        text-transform: uppercase; font-weight: 600;
+    }
+    .status::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+    .status.active { background: rgba(196,242,68,.10); color: var(--accent); border: 1px solid rgba(196,242,68,.28); }
+    .status.paused { background: rgba(255,216,77,.10); color: var(--yellow); border: 1px solid rgba(255,216,77,.28); }
+    .status.closed { background: var(--surface-2);      color: var(--ink-soft); border: 1px solid var(--line-bright); }
+
+    .act {
+        display: inline-flex; align-items: center; padding: 4px 11px;
+        border-radius: var(--r-pill); border: 1px solid var(--line-bright);
+        background: transparent; color: var(--ink-soft);
+        font-family: var(--font-body); font-size: 12px; font-weight: 500;
+        cursor: pointer; text-decoration: none; transition: all .2s;
+    }
+    .act:hover { color: var(--ink); border-color: var(--ink-soft); }
+
+    .empty {
+        padding: var(--s6) var(--s3); text-align: center;
+    }
+    .empty h3 { color: var(--ink); margin: var(--s1) 0; }
+    .empty p  { color: var(--ink-soft); margin-bottom: var(--s3); }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="prg">
+
+    <header class="prg-header prg-section fade-up">
+        <div>
+            <span class="eyebrow">Bug bounty</span>
+            <h1>Programs</h1>
+            <p>Organise your findings by program.</p>
+        </div>
+        <a href="{{ url_for('programs.new') }}" class="btn btn-primary">+ New program</a>
+    </header>
+
+    {% if programs %}
+    <section class="panel prg-panel fade-up d1">
+        <div class="prg-scroll">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Name</th>
+                        <th>Platform</th>
+                        <th>Status</th>
+                        <th>Findings</th>
+                        <th>Created</th>
+                        <th style="text-align:right;">Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for p in programs %}
+                    <tr>
+                        <td class="cell-name">
+                            <a href="{{ url_for('programs.detail', program_id=p.id) }}">{{ p.name }}</a>
+                        </td>
+                        <td>
+                            {% if p.platform %}
+                                <span class="tag-platform">{{ p.platform }}</span>
+                            {% else %}
+                                <span class="faint">—</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% if p.status == 'active' %}
+                                <span class="status active">Active</span>
+                            {% elif p.status == 'paused' %}
+                                <span class="status paused">Paused</span>
+                            {% else %}
+                                <span class="status closed">{{ p.status or 'closed' }}</span>
+                            {% endif %}
+                        </td>
+                        <td class="cell-count">{{ p.vulnerabilities|length }}</td>
+                        <td class="cell-date">{{ p.created_at.strftime('%Y-%m-%d') }}</td>
+                        <td style="text-align:right;">
+                            <a href="{{ url_for('programs.detail', program_id=p.id) }}" class="act">View</a>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </section>
+
+    {% else %}
+    <section class="panel fade-up d1">
+        <div class="empty">
+            <span class="eyebrow">No programs</span>
+            <h3>Nothing here yet</h3>
+            <p>Create your first bug-bounty program to start organising findings.</p>
+            <a href="{{ url_for('programs.new') }}" class="btn btn-primary">+ New program</a>
+        </div>
+    </section>
+    {% endif %}
+
+</div><!-- /prg -->
+{% endblock %}

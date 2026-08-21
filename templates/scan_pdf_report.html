@@ -1,0 +1,228 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Scan Report — {{ job.target }}</title>
+    <style>
+        @page {
+            size: A4;
+            margin: 18mm 18mm 18mm 18mm;
+        }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            font-family: 'DejaVu Sans', 'Arial', 'Helvetica', sans-serif;
+            font-size: 10.5pt;
+            line-height: 1.55;
+            color: #1a202c;
+            background: white;
+            direction: ltr;
+        }
+
+        /* ── Header ── */
+        .header {
+            display: table;
+            width: 100%;
+            border-bottom: 3px solid #0e7490;
+            padding-bottom: 14px;
+            margin-bottom: 22px;
+        }
+        .header-left  { display: table-cell; vertical-align: middle; }
+        .header-right { display: table-cell; vertical-align: middle; text-align: right; }
+        .logo { font-size: 20pt; font-weight: bold; color: #0e7490; letter-spacing: 1px; }
+        .logo-sub { font-size: 8.5pt; color: #718096; }
+        .report-type {
+            font-size: 9pt; font-weight: bold; text-transform: uppercase;
+            color: #0e7490; letter-spacing: 0.08em;
+        }
+        .report-date { font-size: 9pt; color: #718096; margin-top: 2px; }
+
+        /* ── Hero ── */
+        .hero {
+            background: #0e7490;
+            color: white;
+            padding: 16px 20px;
+            margin-bottom: 20px;
+        }
+        .hero-target {
+            font-size: 16pt;
+            font-weight: bold;
+            font-family: 'DejaVu Sans Mono', 'Courier New', monospace;
+            word-break: break-all;
+        }
+        .hero-label { font-size: 8.5pt; opacity: 0.8; margin-bottom: 3px; }
+
+        /* ── Summary table ── */
+        .meta-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-bottom: 22px;
+            font-size: 10pt;
+        }
+        .meta-table td {
+            padding: 8px 12px;
+            border: 1px solid #cbd5e0;
+            vertical-align: top;
+            word-break: break-word;
+        }
+        .meta-table td:first-child {
+            font-weight: bold;
+            color: #4a5568;
+            width: 32%;
+            background: #f7fafc;
+        }
+
+        /* ── Section headings ── */
+        .section-heading {
+            font-size: 12pt;
+            font-weight: bold;
+            color: #0e7490;
+            padding-bottom: 5px;
+            border-bottom: 1.5px solid #cffafe;
+            margin: 22px 0 12px 0;
+            word-break: break-word;
+        }
+
+        /* ── Rendered Markdown styles ── */
+        .md-content { font-size: 10pt; word-break: break-word; }
+        .md-content h1 { font-size: 13pt; font-weight: bold; color: #0e7490;
+                         border-bottom: 1px solid #e2e8f0; padding-bottom: 4px;
+                         margin: 16px 0 8px 0; }
+        .md-content h2 { font-size: 12pt; font-weight: bold; color: #1a202c;
+                         margin: 14px 0 7px 0; }
+        .md-content h3 { font-size: 11pt; font-weight: bold; color: #2d3748;
+                         margin: 12px 0 6px 0; }
+        .md-content p  { margin: 6px 0; }
+        .md-content ul, .md-content ol { margin: 6px 0 6px 16px; }
+        .md-content li { margin: 3px 0; }
+        .md-content code {
+            font-family: 'DejaVu Sans Mono', 'Courier New', monospace;
+            font-size: 9pt;
+            background: #f1f5f9;
+            padding: 1px 4px;
+            word-break: break-all;
+        }
+        .md-content pre {
+            background: #f1f5f9;
+            border: 1px solid #e2e8f0;
+            padding: 10px 12px;
+            margin: 8px 0;
+            font-size: 8.5pt;
+            white-space: pre-wrap;
+            word-break: break-word;
+            overflow-wrap: anywhere;
+        }
+        .md-content pre code { background: none; padding: 0; }
+        .md-content blockquote {
+            border-left: 3px solid #0e7490;
+            padding: 4px 12px;
+            margin: 8px 0;
+            color: #4a5568;
+            background: #f7fafc;
+        }
+        .md-content table { width: 100%; border-collapse: collapse; margin: 10px 0; font-size: 9.5pt; }
+        .md-content th {
+            background: #0e7490; color: white;
+            padding: 7px 10px; text-align: left;
+            border: 1px solid #0e7490; font-weight: bold;
+        }
+        .md-content td {
+            padding: 7px 10px;
+            border: 1px solid #e2e8f0;
+            word-break: break-word;
+        }
+        .md-content tr:nth-child(even) td { background: #f7fafc; }
+        .md-content a { color: #0e7490; }
+        .md-content hr { border: none; border-top: 1px solid #e2e8f0; margin: 16px 0; }
+        .md-content strong { font-weight: bold; }
+        .md-content em { font-style: italic; }
+
+        /* ── Host separator inside report ── */
+        .host-block { margin: 16px 0; page-break-inside: avoid; }
+        .host-label {
+            font-size: 10pt; font-weight: bold; font-family: 'DejaVu Sans Mono', monospace;
+            color: #0e7490; background: #ecfeff; border: 1px solid #cffafe;
+            padding: 4px 10px; display: inline-block; margin-bottom: 8px;
+            word-break: break-all;
+        }
+
+        /* ── Footer ── */
+        .footer {
+            margin-top: 32px;
+            padding-top: 12px;
+            border-top: 1px solid #e2e8f0;
+            text-align: center;
+            font-size: 8.5pt;
+            color: #a0aec0;
+        }
+        .footer p { margin: 2px 0; }
+
+        .no-break { page-break-inside: avoid; }
+    </style>
+</head>
+<body>
+
+    <!-- Header -->
+    <div class="header">
+        <div class="header-left">
+            <div class="logo">BOUNTYHUB</div>
+            <div class="logo-sub">AI Recon Engine</div>
+        </div>
+        <div class="header-right">
+            <div class="report-type">Scan Intelligence Report</div>
+            <div class="report-date">Generated: {{ now }}</div>
+        </div>
+    </div>
+
+    <!-- Hero: target -->
+    <div class="hero no-break">
+        <div class="hero-label">TARGET DOMAIN</div>
+        <div class="hero-target">{{ job.target }}</div>
+    </div>
+
+    <!-- Summary -->
+    <table class="meta-table no-break">
+        <tr>
+            <td>Scan ID</td>
+            <td><code style="font-size:9pt;">{{ job.scan_id }}</code></td>
+        </tr>
+        <tr>
+            <td>Status</td>
+            <td>{{ job.status | upper }}</td>
+        </tr>
+        <tr>
+            <td>Hosts Discovered</td>
+            <td>{{ job.hosts_found or '—' }}</td>
+        </tr>
+        <tr>
+            <td>Hosts Scanned</td>
+            <td>{{ job.hosts_scanned or '—' }}</td>
+        </tr>
+        <tr>
+            <td>Started</td>
+            <td>{{ job.created_at.strftime('%Y-%m-%d %H:%M UTC') if job.created_at else '—' }}</td>
+        </tr>
+        <tr>
+            <td>Completed</td>
+            <td>{{ job.completed_at.strftime('%Y-%m-%d %H:%M UTC') if job.completed_at else '—' }}</td>
+        </tr>
+    </table>
+
+    <!-- AI Report -->
+    {% if report_html %}
+    <div class="section-heading">AI Vulnerability Analysis</div>
+    <div class="md-content">{{ report_html | safe }}</div>
+    {% else %}
+    <div class="section-heading">AI Vulnerability Analysis</div>
+    <p style="color:#718096; font-style:italic; font-size:10pt;">No AI report available for this scan.</p>
+    {% endif %}
+
+    <!-- Footer -->
+    <div class="footer">
+        <p><strong>BountyHub Security Platform</strong> — Confidential</p>
+        <p>{{ job.target }} &nbsp;|&nbsp; {{ now }}</p>
+    </div>
+
+</body>
+</html>

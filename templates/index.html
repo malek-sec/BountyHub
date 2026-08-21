@@ -1,0 +1,1058 @@
+{% extends "base.html" %}
+{% block title %}Dashboard{% endblock %}
+
+{% block head %}
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+<style>
+    /* ── Scoped resets so theme.css tokens win over base.html ─────── */
+    .dash, .dash * { font-family: var(--font-body); }
+
+    /* ── Section spacing ──────────────────────────────────────────── */
+    .dash-section { margin-bottom: var(--s4); }
+
+    /* ── Page header ──────────────────────────────────────────────── */
+    .dash-header h1 {
+        font-size: var(--t-2xl);
+        color: var(--ink);
+        margin-top: var(--s1);
+    }
+    .dash-header p { color: var(--ink-soft); margin-top: 6px; font-size: 15px; }
+
+    /* ── Stat cards ───────────────────────────────────────────────── */
+    .stat { padding: var(--s3); }
+    .stat .stat-num {
+        font-family: var(--font-display);
+        font-size: var(--t-3xl);
+        line-height: 1;
+        color: var(--ink);
+        margin: var(--s2) 0 var(--s1);
+        letter-spacing: -0.02em;
+    }
+    .stat.accent .stat-num { color: var(--accent); }
+    .stat .stat-sub { color: var(--ink-faint); font-size: 12px; }
+
+    /* ── Scanner panel body ───────────────────────────────────────── */
+    .scan-body { padding: var(--s3); display: flex; flex-direction: column; gap: var(--s3); }
+    .scan-input-wrap { display: flex; gap: var(--s2); align-items: stretch; }
+    #scan-target { flex: 1; font-family: var(--font-mono); }
+    #scan-btn { white-space: nowrap; }
+    .btn-spinner {
+        display: none; width: 14px; height: 14px;
+        border: 2px solid rgba(0,0,0,.2); border-top-color: var(--bg);
+        border-radius: 50%; animation: spin .7s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    #reconnect-banner {
+        display: none; align-items: center; gap: var(--s1);
+        background: rgba(255,216,77,.08); color: var(--yellow);
+        border: 1px solid rgba(255,216,77,.28);
+        border-radius: var(--r-sm); padding: 10px 14px; font-size: 13px;
+    }
+    #scan-error {
+        display: none;
+        background: rgba(255,93,93,.08); color: var(--red);
+        border: 1px solid rgba(255,93,93,.28);
+        border-radius: var(--r-sm); padding: 10px 14px; font-size: 13px;
+    }
+
+    /* ── Progress bar + timeline (steps preserved for JS) ─────────── */
+    #timeline-section { display: none; }
+    .scan-progress { margin-bottom: var(--s2); }
+    .timeline-wrap { display: flex; align-items: flex-start; margin-top: var(--s2); }
+    .tl-step {
+        flex: 1; display: flex; flex-direction: column; align-items: center;
+        position: relative; z-index: 1;
+    }
+    .tl-step:not(:last-child)::after {
+        content: ''; position: absolute; top: 14px;
+        left: calc(50% + 16px); right: calc(-50% + 16px);
+        height: 1px; background: var(--line); z-index: 0; transition: background .4s;
+    }
+    .tl-step.done:not(:last-child)::after { background: var(--accent-dim); }
+    .tl-dot {
+        width: 30px; height: 30px; border-radius: 50%;
+        background: var(--bg-soft); border: 1px solid var(--line);
+        color: var(--ink-faint); font-family: var(--font-mono); font-size: 12px;
+        display: flex; align-items: center; justify-content: center;
+        transition: all .3s; position: relative; z-index: 2;
+    }
+    .tl-step.done   .tl-dot { background: var(--accent); border-color: var(--accent); color: var(--bg); }
+    .tl-step.active .tl-dot {
+        border-color: var(--accent); color: var(--accent);
+        box-shadow: 0 0 0 4px var(--glow);
+        animation: tl-pulse 1.6s ease-in-out infinite;
+    }
+    @keyframes tl-pulse { 0%,100% { box-shadow: 0 0 0 4px var(--glow); } 50% { box-shadow: 0 0 0 9px var(--glow); } }
+    .tl-label {
+        margin-top: 10px; font-family: var(--font-mono); font-size: 10px;
+        color: var(--ink-faint); text-align: center;
+        letter-spacing: .08em; text-transform: uppercase; transition: color .3s;
+    }
+    .tl-step.done   .tl-label { color: var(--ink-soft); }
+    .tl-step.active .tl-label { color: var(--accent); }
+    .tl-status-row { display: flex; align-items: center; gap: var(--s1); margin-top: var(--s2); }
+    .tl-spinner {
+        width: 12px; height: 12px; border: 2px solid var(--line);
+        border-top-color: var(--accent); border-radius: 50%;
+        animation: spin .7s linear infinite;
+    }
+    .tl-msg { font-family: var(--font-mono); font-size: 12px; color: var(--accent); }
+
+    /* ── Terminal ─────────────────────────────────────────────────── */
+    #log-section { display: none; }
+    .terminal {
+        background: var(--bg); border: 1px solid var(--line);
+        border-radius: var(--r-sm); overflow: hidden;
+    }
+    .terminal-bar {
+        padding: 8px 14px; background: var(--bg-soft);
+        border-bottom: 1px solid var(--line);
+        display: flex; align-items: center; gap: 6px;
+    }
+    .t-dot { width: 10px; height: 10px; border-radius: 50%; }
+    .t-red { background: var(--red); } .t-yellow { background: var(--yellow); } .t-green { background: var(--accent); }
+    .terminal-label {
+        margin-left: 6px; font-family: var(--font-mono);
+        font-size: 11px; color: var(--ink-faint);
+    }
+    #log-body {
+        padding: var(--s2) var(--s3); height: 220px; overflow-y: auto;
+        font-family: var(--font-mono); font-size: 12px; line-height: 1.75;
+    }
+    .log-line    { margin: 0; padding: 1px 0; }
+    .log-info    { color: var(--blue); }
+    .log-success { color: var(--accent); }
+    .log-warning { color: var(--yellow); }
+    .log-error   { color: var(--red); }
+    .log-default { color: var(--ink-soft); }
+    .log-prompt  { color: var(--ink-faint); }
+
+    /* ── Diff card ────────────────────────────────────────────────── */
+    #diff-section { display: none; }
+    .diff-card {
+        background: rgba(255,165,61,.05);
+        border: 1px solid rgba(255,165,61,.25);
+        border-radius: var(--r-sm); padding: var(--s3);
+    }
+    .diff-title {
+        color: var(--orange); font-family: var(--font-mono);
+        font-size: 13px; margin-bottom: var(--s2);
+        display: flex; align-items: center; gap: 6px;
+    }
+    .diff-group { margin-bottom: var(--s2); }
+    .diff-group-label {
+        font-family: var(--font-mono); font-size: 10px;
+        color: var(--ink-faint); text-transform: uppercase;
+        letter-spacing: .08em; margin-bottom: 4px;
+    }
+    .diff-item {
+        font-family: var(--font-mono); font-size: 12px; color: var(--orange);
+        background: rgba(255,165,61,.06); padding: 4px 10px;
+        border-radius: var(--r-sm); margin-bottom: 3px;
+    }
+    .diff-item::before { content: "+ "; color: var(--accent); }
+    .diff-badge {
+        display: inline-flex; align-items: center; margin-left: 6px;
+        background: rgba(255,165,61,.12); color: var(--orange);
+        border: 1px solid rgba(255,165,61,.28); border-radius: var(--r-pill);
+        padding: 2px 8px; font-family: var(--font-mono);
+        font-size: 9px; letter-spacing: .08em;
+    }
+
+    /* ── AI Report ────────────────────────────────────────────────── */
+    #report-section { display: none; }
+    #report-body-wrap { padding: var(--s3); }
+    #report-body { color: var(--ink); line-height: 1.7; font-size: 14px; }
+    #report-body h1, #report-body h2, #report-body h3, #report-body h4 {
+        font-family: var(--font-display); color: var(--ink);
+        margin-top: var(--s3); margin-bottom: var(--s1);
+    }
+    #report-body h1 { font-size: var(--t-lg); border-bottom: 1px solid var(--line); padding-bottom: var(--s1); }
+    #report-body h2 { font-size: var(--t-md); color: var(--accent-dim); }
+    #report-body code {
+        background: var(--bg-soft); color: var(--accent);
+        padding: 2px 6px; border-radius: 4px;
+        font-family: var(--font-mono); font-size: 12px;
+    }
+    #report-body pre {
+        background: var(--bg); border: 1px solid var(--line);
+        border-radius: var(--r-sm); padding: var(--s2);
+        overflow-x: auto; margin: var(--s2) 0;
+    }
+    #report-body pre code { background: none; color: var(--ink-soft); padding: 0; }
+    #report-body ul, #report-body ol { padding-left: var(--s3); margin: var(--s1) 0; }
+    #report-body strong { color: var(--ink); }
+    #report-body blockquote {
+        border-left: 3px solid var(--accent);
+        padding: var(--s1) var(--s2); color: var(--ink-soft);
+        background: var(--bg-soft); margin: var(--s2) 0;
+    }
+    #report-body table { margin: var(--s2) 0; }
+    #report-body th { background: var(--bg-soft); color: var(--accent); }
+
+    #export-pdf-btn { display: none; align-items: center; gap: 6px; }
+    .pdf-spinner {
+        display: none; width: 12px; height: 12px;
+        border: 2px solid var(--line); border-top-color: var(--accent);
+        border-radius: 50%; animation: spin .7s linear infinite;
+    }
+    #export-pdf-btn.exporting .pdf-spinner { display: block; }
+    #export-pdf-btn.exporting .pdf-icon    { display: none; }
+
+    /* ── Screenshots ──────────────────────────────────────────────── */
+    #screenshots-section { display: none; }
+    #ss-body { padding: var(--s3); }
+    .screenshots-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+        gap: var(--s2);
+    }
+    .ss-card {
+        background: var(--bg); border: 1px solid var(--line);
+        border-radius: var(--r-sm); overflow: hidden; cursor: pointer;
+        transition: border-color .2s, transform .2s;
+    }
+    .ss-card:hover { border-color: var(--accent-dim); transform: translateY(-2px); }
+    .ss-img-wrap { position: relative; padding-bottom: 56.25%; background: var(--bg-soft); }
+    .ss-img-wrap img {
+        position: absolute; inset: 0; width: 100%; height: 100%;
+        object-fit: cover; transition: opacity .3s;
+    }
+    .ss-img-wrap img.loading { opacity: 0.3; }
+    .ss-placeholder {
+        position: absolute; inset: 0; display: flex;
+        align-items: center; justify-content: center;
+        color: var(--ink-faint); font-size: 12px;
+    }
+    .ss-placeholder-icon { display: none; }
+    .ss-host {
+        padding: 10px 14px; font-family: var(--font-mono); font-size: 12px;
+        color: var(--accent); border-top: 1px solid var(--line);
+        overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    }
+
+    /* ── Lightbox ─────────────────────────────────────────────────── */
+    #ss-lightbox {
+        display: none; position: fixed; inset: 0; z-index: 9999;
+        background: rgba(0,0,0,.9); align-items: center; justify-content: center;
+        cursor: zoom-out;
+    }
+    #ss-lightbox.open { display: flex; }
+    #ss-lightbox img { max-width: 92vw; max-height: 88vh; border-radius: var(--r-sm); }
+    #ss-lightbox-caption {
+        position: absolute; bottom: 24px; left: 50%; transform: translateX(-50%);
+        background: rgba(0,0,0,.7); color: var(--accent);
+        border-radius: var(--r-sm); padding: 6px 18px;
+        font-family: var(--font-mono); font-size: 13px;
+    }
+
+    /* ── Recent findings table ────────────────────────────────────── */
+    .findings-payout { color: var(--accent); font-family: var(--font-mono); font-weight: 600; }
+    .findings-title  { color: var(--ink); max-width: 340px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .findings-id     { color: var(--ink-faint); font-family: var(--font-mono); font-size: 12px; }
+    .findings-foot   {
+        padding: var(--s2) var(--s3); text-align: right;
+        border-top: 1px solid var(--line);
+    }
+    .findings-foot a { color: var(--ink-soft); font-size: 13px; }
+    .findings-foot a:hover { color: var(--accent); }
+
+    /* ── Activity feed ────────────────────────────────────────────── */
+    .feed { list-style: none; padding: 0; margin: 0; }
+    .feed-item {
+        display: flex; gap: var(--s2);
+        padding: var(--s2) var(--s3);
+        border-bottom: 1px solid var(--line);
+    }
+    .feed-item:last-child { border-bottom: none; }
+    .feed-dot {
+        width: 8px; height: 8px; border-radius: 50%;
+        background: var(--accent); flex-shrink: 0; margin-top: 8px;
+        box-shadow: 0 0 8px var(--glow);
+    }
+    .feed-action  { color: var(--ink); font-weight: 500; font-size: 14px; text-transform: capitalize; }
+    .feed-details { color: var(--ink-soft); font-size: 13px; margin-top: 2px; overflow: hidden; text-overflow: ellipsis; }
+    .feed-time    { color: var(--ink-faint); font-family: var(--font-mono); font-size: 11px; margin-top: 4px; letter-spacing: .05em; }
+    .empty-state {
+        padding: var(--s5); text-align: center; color: var(--ink-soft);
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="dash">
+
+    <!-- ── Page header ────────────────────────────────────────────── -->
+    <header class="dash-header dash-section fade-up">
+        <span class="eyebrow">Overview</span>
+        <h1>Dashboard</h1>
+        <p>Recon activity, bounty performance, and live scan telemetry.</p>
+    </header>
+
+    <!-- ── Stat grid (4 cards, serif numbers) ─────────────────────── -->
+    <div class="grid grid-4 dash-section fade-up d1">
+        <div class="card stat">
+            <div class="eyebrow">Total findings</div>
+            <div class="stat-num">{{ stats.total }}</div>
+            <div class="stat-sub">{{ stats.critical + stats.high }} high-impact</div>
+        </div>
+        <div class="card stat accent">
+            <div class="eyebrow">Earned {{ current_year }}</div>
+            <div class="stat-num">${{ "{:,.0f}".format(stats.earned_this_year) }}</div>
+            <div class="stat-sub">Paid bounties year-to-date</div>
+        </div>
+        <div class="card stat">
+            <div class="eyebrow">Scans completed</div>
+            <div class="stat-num">{{ stats.scans_completed }}</div>
+            <div class="stat-sub">Recon pipeline runs</div>
+        </div>
+        <div class="card stat">
+            <div class="eyebrow">Active programs</div>
+            <div class="stat-num">{{ stats.active_programs }}</div>
+            <div class="stat-sub">Currently in-scope</div>
+        </div>
+    </div>
+
+    {% if scan_engine_available %}
+    <!-- ── Live scan: input + progress + terminal ─────────────────── -->
+    <section class="panel dash-section fade-up d2">
+        <div class="panel-head">
+            <div>
+                <span class="eyebrow">Live scan</span>
+                <h3 style="margin-top:4px;">Active reconnaissance</h3>
+            </div>
+            <span class="muted mono" style="font-size:11px; letter-spacing:.05em;">
+                subfinder → httpx → nmap → whatweb → claude
+            </span>
+        </div>
+
+        <div class="scan-body">
+            <div class="scan-input-wrap">
+                <input id="scan-target" type="text"
+                       placeholder="e.g. example.com"
+                       autocomplete="off" spellcheck="false">
+                <button id="scan-btn" class="btn btn-primary" onclick="BH.startScan()">
+                    <div class="btn-spinner" id="btn-spinner"></div>
+                    <span id="btn-label">Start scan</span>
+                </button>
+            </div>
+
+            <div id="reconnect-banner">
+                <span>↻</span>
+                <span id="reconnect-msg">Reconnecting to active scan…</span>
+            </div>
+            <div id="scan-error"></div>
+
+            <div id="timeline-section">
+                <div class="scan-progress">
+                    <div class="progress"><span id="tl-bar" style="width:0%"></span></div>
+                </div>
+                <div class="timeline-wrap">
+                    <div class="tl-step" data-step="initializing"><div class="tl-dot">1</div><div class="tl-label">Init</div></div>
+                    <div class="tl-step" data-step="recon">       <div class="tl-dot">2</div><div class="tl-label">Recon</div></div>
+                    <div class="tl-step" data-step="fingerprint"> <div class="tl-dot">3</div><div class="tl-label" id="fp-label">Fingerprint</div></div>
+                    <div class="tl-step" data-step="ai_analysis"> <div class="tl-dot">4</div><div class="tl-label">Claude AI</div></div>
+                    <div class="tl-step" data-step="completed">   <div class="tl-dot">✓</div><div class="tl-label">Complete</div></div>
+                </div>
+                <div class="tl-status-row">
+                    <div class="tl-spinner" id="tl-spinner"></div>
+                    <div class="tl-msg" id="tl-msg">Initializing…</div>
+                </div>
+            </div>
+
+            <div id="diff-section"></div>
+
+            <div id="log-section">
+                <div class="terminal">
+                    <div class="terminal-bar">
+                        <div class="t-dot t-red"></div>
+                        <div class="t-dot t-yellow"></div>
+                        <div class="t-dot t-green"></div>
+                        <span class="terminal-label">bountyhub@recon:~$ live output</span>
+                    </div>
+                    <div id="log-body"><p class="log-line log-prompt">Waiting for scan to start…</p></div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- ── AI report (preserved JS hooks; hidden until populated) ── -->
+    <section class="panel dash-section" id="report-section">
+        <div class="panel-head">
+            <div>
+                <span class="eyebrow">Claude Sonnet 4.6</span>
+                <h3 style="margin-top:4px;">Vulnerability intelligence report</h3>
+            </div>
+            <button id="export-pdf-btn" class="btn btn-ghost" onclick="BH.exportPDF()">
+                <div class="pdf-spinner"></div>
+                <span class="pdf-icon">Export PDF</span>
+            </button>
+        </div>
+        <div id="report-body-wrap"><div id="report-body"></div></div>
+    </section>
+
+    <!-- ── Screenshots (preserved JS hooks) ───────────────────────── -->
+    <section class="panel dash-section" id="screenshots-section">
+        <div class="panel-head">
+            <div>
+                <span class="eyebrow">Visual recon</span>
+                <h3 style="margin-top:4px;">Screenshots <span id="ss-count-badge" class="faint mono" style="font-size:12px; margin-left:8px;"></span></h3>
+            </div>
+        </div>
+        <div id="ss-body">
+            <div class="screenshots-grid" id="screenshots-grid"></div>
+        </div>
+    </section>
+
+    {% else %}
+    <div class="card dash-section" style="padding: var(--s5); text-align:center;">
+        <span class="eyebrow" style="color: var(--yellow);">Warning</span>
+        <h3 style="margin: var(--s2) 0 var(--s1);">Scan engine unavailable</h3>
+        <p class="muted">BountyHub v2 core modules could not be loaded.
+           Ensure <code>BountyHub_v2/</code> is present and dependencies are installed.</p>
+    </div>
+    {% endif %}
+
+    <!-- ── Recent findings + activity feed ────────────────────────── -->
+    <div class="grid grid-2 dash-section fade-up d3">
+        <!-- Recent findings -->
+        <section class="panel">
+            <div class="panel-head">
+                <div>
+                    <span class="eyebrow">Vulnerabilities</span>
+                    <h3 style="margin-top:4px;">Recent findings</h3>
+                </div>
+                <a href="/submit" class="btn btn-ghost">+ New finding</a>
+            </div>
+            {% if recent %}
+            <table>
+                <thead>
+                    <tr>
+                        <th>ID</th>
+                        <th>Title</th>
+                        <th>Severity</th>
+                        <th style="text-align:right;">Payout</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for bug in recent %}
+                    {% set sev_map = {'Critical':'crit','High':'high','Medium':'med','Low':'low'} %}
+                    <tr onclick="location.href='/preview/{{ bug.id }}'" style="cursor:pointer;">
+                        <td class="findings-id">#{{ bug.id }}</td>
+                        <td class="findings-title">{{ bug.title }}</td>
+                        <td><span class="sev {{ sev_map.get(bug.severity, 'info') }}">{{ bug.severity }}</span></td>
+                        <td style="text-align:right;">
+                            {% if bug.payout and bug.payout > 0 %}
+                                <span class="findings-payout">${{ "{:,.0f}".format(bug.payout) }}</span>
+                            {% else %}
+                                <span class="faint">—</span>
+                            {% endif %}
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+            <div class="findings-foot">
+                <a href="/archive">View all {{ stats.total }} findings →</a>
+            </div>
+            {% else %}
+            <div class="empty-state">
+                <p style="margin-bottom: var(--s2);">No findings recorded yet.</p>
+                <a href="/submit" class="btn btn-primary">Add first finding</a>
+            </div>
+            {% endif %}
+        </section>
+
+        <!-- Activity feed -->
+        <section class="panel">
+            <div class="panel-head">
+                <div>
+                    <span class="eyebrow">Activity</span>
+                    <h3 style="margin-top:4px;">Recent events</h3>
+                </div>
+                <a href="/timeline" class="muted" style="font-size:13px;">Timeline →</a>
+            </div>
+            {% if activity %}
+            <ul class="feed">
+                {% for a in activity %}
+                <li class="feed-item">
+                    <div class="feed-dot"></div>
+                    <div style="flex:1; min-width:0;">
+                        <div class="feed-action">{{ (a.action or 'event')|replace('_', ' ') }}</div>
+                        {% if a.details %}<div class="feed-details">{{ a.details }}</div>{% endif %}
+                        <div class="feed-time">{{ a.timestamp.strftime('%Y-%m-%d %H:%M') }} UTC</div>
+                    </div>
+                </li>
+                {% endfor %}
+            </ul>
+            {% else %}
+            <div class="empty-state">
+                <p>No activity recorded yet.</p>
+            </div>
+            {% endif %}
+        </section>
+    </div>
+
+</div><!-- /dash -->
+
+<!-- Screenshot lightbox (JS hook preserved) -->
+<div id="ss-lightbox" onclick="BH.closeLightbox()">
+    <img id="ss-lightbox-img" src="" alt="">
+    <div id="ss-lightbox-caption"></div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+{% if scan_engine_available %}
+<script>
+const BH = (() => {
+    "use strict";
+
+    const POLL_MS = 3000;
+
+    const STAGE_ORDER = [
+        "initializing", "recon", "fingerprint", "ai_analysis", "completed"
+    ];
+    const STAGE_LABELS = {
+        initializing  : "Initializing scan environment…",
+        recon         : "Running passive recon (subfinder + httpx + screenshots)…",
+        fingerprint   : "Fingerprinting services (nmap + WhatWeb)…",
+        ai_analysis   : "Claude Sonnet 4.6 is performing batch vulnerability analysis…",
+        completed     : "All stages complete.",
+        failed        : "Scan failed.",
+    };
+
+    let scanId        = null;
+    let pollTimer     = null;
+    let lastLogLen    = 0;
+    let ssRendered    = false;
+    let diffRendered  = false;
+
+    const dom = {
+        input        : document.getElementById("scan-target"),
+        btn          : document.getElementById("scan-btn"),
+        btnLabel     : document.getElementById("btn-label"),
+        btnSpinner   : document.getElementById("btn-spinner"),
+        reconnect    : document.getElementById("reconnect-banner"),
+        reconnectMsg : document.getElementById("reconnect-msg"),
+        errorBox     : document.getElementById("scan-error"),
+        tlSection    : document.getElementById("timeline-section"),
+        tlSteps      : document.querySelectorAll(".tl-step"),
+        tlMsg        : document.getElementById("tl-msg"),
+        tlSpinner    : document.getElementById("tl-spinner"),
+        tlBar        : document.getElementById("tl-bar"),
+        fpLabel      : document.getElementById("fp-label"),
+        logSection   : document.getElementById("log-section"),
+        logBody      : document.getElementById("log-body"),
+        rptSection   : document.getElementById("report-section"),
+        rptBody      : document.getElementById("report-body"),
+        ssSection    : document.getElementById("screenshots-section"),
+        ssGrid       : document.getElementById("screenshots-grid"),
+        ssCountBadge : document.getElementById("ss-count-badge"),
+        diffSection  : document.getElementById("diff-section"),
+        lightbox     : document.getElementById("ss-lightbox"),
+        lbImg        : document.getElementById("ss-lightbox-img"),
+        lbCaption    : document.getElementById("ss-lightbox-caption"),
+        exportBtn    : document.getElementById("export-pdf-btn"),
+    };
+
+    dom.input.addEventListener("keydown", function(e) {
+        if (e.key === "Enter" && !dom.btn.disabled) startScan();
+    });
+    document.addEventListener("keydown", function(e) {
+        if (e.key === "Escape") closeLightbox();
+    });
+
+    document.addEventListener("DOMContentLoaded", function() {
+        fetch("/api/scans")
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+            var active = (data.scans || []).find(function(s) {
+                return s.status === "running" || s.status === "queued";
+            });
+            if (active) {
+                scanId     = active.scan_id;
+                lastLogLen = 0;
+                dom.input.value = active.target || "";
+                dom.reconnectMsg.textContent =
+                    "↻ Reconnected to active scan for “" + (active.target || scanId) + "”";
+                dom.reconnect.style.display  = "flex";
+                setBusy(true);
+                dom.tlSection.style.display  = "block";
+                dom.logSection.style.display = "block";
+                dom.logBody.innerHTML        = "";
+                appendLog("[*] Page reload — resuming scan " + scanId, "info");
+                appendLog("[*] Target: " + (active.target || "unknown"), "info");
+                schedulePoll();
+                return;
+            }
+
+            return fetch("/api/scan/latest")
+                .then(function(r) { return r.json(); })
+                .then(function(latest) {
+                    if (!latest || !latest.found) return;
+                    if (latest.status === "completed") {
+                        restoreCompletedScan(latest);
+                    }
+                });
+        })
+        .catch(function() {});
+    });
+
+    function startScan() {
+        var target = (dom.input.value || "").trim();
+        if (!target) { showError("Please enter a target domain first."); return; }
+        resetUI();
+        setBusy(true);
+        fetch("/api/start_scan", {
+            method : "POST",
+            headers: {"Content-Type": "application/json"},
+            body   : JSON.stringify({target: target}),
+        })
+        .then(function(r) { return r.json().then(function(d) { return {ok:r.ok, status:r.status, data:d}; }); })
+        .then(function(res) {
+            if (!res.ok) {
+                showError(res.data.error || ("Server error " + res.status));
+                setBusy(false);
+                return;
+            }
+            scanId     = res.data.scan_id;
+            lastLogLen = 0;
+            dom.tlSection.style.display  = "block";
+            dom.logSection.style.display = "block";
+            dom.logBody.innerHTML        = "";
+            appendLog("[*] Scan started — ID: " + scanId, "info");
+            appendLog("[*] Target: " + target, "info");
+            schedulePoll();
+        })
+        .catch(function(err) {
+            showError("Network error: " + err.message);
+            setBusy(false);
+        });
+    }
+
+    function schedulePoll() { pollTimer = setInterval(poll, POLL_MS); }
+    function stopPolling()  { if (pollTimer) { clearInterval(pollTimer); pollTimer = null; } }
+
+    function poll() {
+        if (!scanId) return;
+        fetch("/api/scan_status/" + scanId)
+        .then(function(r) {
+            if (r.status === 401) {
+                stopPolling();
+                appendLog("[!] Session expired — please refresh the page and log in again.", "warning");
+                return null;
+            }
+            if (!r.ok) {
+                return r.text().then(function(t) {
+                    var snippet = t ? t.replace(/<[^>]+>/g, "").trim().slice(0, 120) : "";
+                    throw new Error("HTTP " + r.status + (snippet ? ": " + snippet : ""));
+                });
+            }
+            return r.json();
+        })
+        .then(function(data) {
+            if (!data) return;
+            updateTimeline(data.stage || "initializing");
+            syncLog(data.log || []);
+
+            if (!ssRendered && data.screenshots && Object.keys(data.screenshots).length > 0) {
+                renderScreenshots(data.screenshots);
+                ssRendered = true;
+            }
+
+            if (!diffRendered && data.diff && data.diff.has_diff) {
+                renderDiff(data.diff);
+                diffRendered = true;
+            }
+
+            if      (data.status === "completed") { stopPolling(); onCompleted(data); }
+            else if (data.status === "failed")    { stopPolling(); onFailed(data);    }
+        })
+        .catch(function(err) {
+            appendLog("[!] Poll error: " + err.message, "warning");
+        });
+    }
+
+    function updateTimeline(stage) {
+        var idx = STAGE_ORDER.indexOf(stage);
+        dom.tlSteps.forEach(function(el, i) {
+            el.classList.remove("done", "active");
+            if      (i < idx)  el.classList.add("done");
+            else if (i === idx) el.classList.add("active");
+        });
+        dom.tlMsg.textContent = STAGE_LABELS[stage] || stage;
+        if (dom.tlBar) {
+            var pct = idx >= 0 ? ((idx + 1) / STAGE_ORDER.length) * 100 : 0;
+            dom.tlBar.style.width = pct + "%";
+        }
+    }
+
+    function syncLog(lines) {
+        var newLines = lines.slice(lastLogLen);
+        lastLogLen   = lines.length;
+        newLines.forEach(function(item) {
+            var line;
+            if (item === null || item === undefined) { return; }
+            else if (typeof item === "string")       { line = item; }
+            else if (typeof item === "object") {
+                if (item.label !== undefined && item.value !== undefined) {
+                    line = "[*] " + item.label + ": " + item.value;
+                } else if (item.msg !== undefined) {
+                    var prefix = item.level === "success" ? "[+] " :
+                                 item.level === "error"   ? "[-] " :
+                                 item.level === "warning" ? "[!] " : "[*] ";
+                    line = prefix + item.msg;
+                } else { line = JSON.stringify(item); }
+            } else { line = String(item); }
+
+            var cls = line.startsWith("[+]") ? "success" :
+                      line.startsWith("[-]") ? "error"   :
+                      line.startsWith("[!]") ? "warning"  :
+                      line.startsWith("[*]") ? "info"     : "default";
+            appendLog(line, cls);
+        });
+    }
+
+    function appendLog(text, cls) {
+        var p = document.createElement("p");
+        p.className   = "log-line log-" + (cls || "default");
+        p.textContent = text;
+        dom.logBody.appendChild(p);
+        dom.logBody.scrollTop = dom.logBody.scrollHeight;
+    }
+
+    function renderScreenshots(shots) {
+        var keys = Object.keys(shots);
+        if (!keys.length) return;
+
+        dom.ssGrid.innerHTML      = "";
+        dom.ssCountBadge.textContent = keys.length + " host" + (keys.length !== 1 ? "s" : "");
+
+        keys.forEach(function(host) {
+            var src  = shots[host];
+            var card = document.createElement("div");
+            card.className = "ss-card";
+
+            var wrap = document.createElement("div");
+            wrap.className = "ss-img-wrap";
+
+            if (src) {
+                var img = document.createElement("img");
+                img.className = "loading";
+                img.alt       = host;
+                img.onload    = function() { img.classList.remove("loading"); };
+                img.onerror   = function() {
+                    wrap.innerHTML = '<div class="ss-placeholder">Screenshot unavailable</div>';
+                };
+                img.src = src;
+                wrap.appendChild(img);
+
+                card.onclick = function() { openLightbox(src, host); };
+            } else {
+                wrap.innerHTML = '<div class="ss-placeholder">No screenshot</div>';
+            }
+
+            var hostDiv = document.createElement("div");
+            hostDiv.className   = "ss-host";
+            hostDiv.textContent = host;
+
+            card.appendChild(wrap);
+            card.appendChild(hostDiv);
+            dom.ssGrid.appendChild(card);
+        });
+
+        dom.ssSection.style.display = "block";
+    }
+
+    function openLightbox(src, caption) {
+        dom.lbImg.src            = src;
+        dom.lbCaption.textContent = caption;
+        dom.lightbox.classList.add("open");
+        document.body.style.overflow = "hidden";
+    }
+    function closeLightbox() {
+        dom.lightbox.classList.remove("open");
+        document.body.style.overflow = "";
+        dom.lbImg.src = "";
+    }
+
+    function renderDiff(diff) {
+        if (!diff || !diff.has_diff) return;
+
+        var fpStep = dom.tlSection.querySelector('[data-step="fingerprint"] .tl-label');
+        if (fpStep && !fpStep.querySelector(".diff-badge")) {
+            var badge = document.createElement("span");
+            badge.className   = "diff-badge";
+            badge.textContent = "DIFF";
+            dom.fpLabel.appendChild(badge);
+        }
+
+        var html = '<div class="diff-card">'
+            + '<div class="diff-title">⚠ Asset changes detected vs previous scan</div>';
+
+        if (diff.previous_scan_at) {
+            html += '<div class="muted" style="font-size:12px; margin-bottom: var(--s1);">'
+                 + 'Compared against scan completed at: '
+                 + escHtml(diff.previous_scan_at.replace("T", " ").split(".")[0]) + ' UTC'
+                 + '</div>';
+        }
+
+        if (diff.new_hosts && diff.new_hosts.length) {
+            html += '<div class="diff-group">'
+                 + '<div class="diff-group-label">New hosts (' + diff.new_hosts.length + ')</div>';
+            diff.new_hosts.forEach(function(h) {
+                html += '<div class="diff-item">' + escHtml(h) + '</div>';
+            });
+            html += '</div>';
+        }
+
+        if (diff.new_ports && Object.keys(diff.new_ports).length) {
+            html += '<div class="diff-group">'
+                 + '<div class="diff-group-label">New open ports</div>';
+            Object.keys(diff.new_ports).forEach(function(host) {
+                var ports = diff.new_ports[host];
+                html += '<div class="diff-item">' + escHtml(host)
+                     + ' &nbsp;→&nbsp; ' + escHtml(ports.join(", ")) + '</div>';
+            });
+            html += '</div>';
+        }
+
+        html += '</div>';
+        dom.diffSection.innerHTML   = html;
+        dom.diffSection.style.display = "block";
+    }
+
+    function renderAIReport(md, scroll) {
+        if (!md || !md.trim()) {
+            dom.rptBody.innerHTML = '<p class="muted">No AI analysis available for this scan.</p>';
+            dom.rptSection.style.display = "block";
+            return;
+        }
+
+        dom.rptBody.innerHTML        = renderMarkdown(md);
+        dom.rptSection.style.display = "block";
+        dom.exportBtn.style.display  = "inline-flex";
+
+        if (scroll) {
+            dom.rptSection.scrollIntoView({behavior: "smooth", block: "start"});
+        }
+    }
+
+    function onCompleted(data) {
+        dom.reconnect.style.display = "none";
+        updateTimeline("completed");
+        dom.tlSpinner.style.display = "none";
+        dom.tlMsg.style.color       = "var(--accent)";
+        appendLog("[+] Scan completed successfully.", "success");
+        setBusy(false);
+
+        if (!ssRendered && data.screenshots && Object.keys(data.screenshots).length) {
+            renderScreenshots(data.screenshots);
+            ssRendered = true;
+        }
+
+        if (!diffRendered && data.diff && data.diff.has_diff) {
+            renderDiff(data.diff);
+            diffRendered = true;
+        }
+
+        var md = "";
+        if (data.result && typeof data.result === "string" && data.result.trim()) {
+            md = data.result;
+        } else if (data.analyses && typeof data.analyses === "object") {
+            Object.keys(data.analyses).forEach(function(host) {
+                var text = data.analyses[host];
+                if (text && text !== "Analysis unavailable.") {
+                    md += "## " + host + "\n\n" + text + "\n\n---\n\n";
+                }
+            });
+        }
+
+        renderAIReport(md, true);
+    }
+
+    function onFailed(data) {
+        dom.reconnect.style.display = "none";
+        dom.tlSpinner.style.display = "none";
+        appendLog("[-] Scan failed: " + (data.error || "unknown error"), "error");
+        showError("Scan failed: " + (data.error || "Unknown error"));
+        setBusy(false);
+    }
+
+    function restoreCompletedScan(data) {
+        scanId = data.scan_id || null;
+
+        if (data.target) dom.input.value = data.target;
+
+        dom.tlSection.style.display  = "block";
+        dom.logSection.style.display = "block";
+        updateTimeline("completed");
+        dom.tlSpinner.style.display  = "none";
+        dom.tlMsg.style.color        = "var(--accent)";
+
+        if (data.log && data.log.length) {
+            dom.logBody.innerHTML = "";
+            lastLogLen = 0;
+            syncLog(data.log);
+        }
+
+        if (data.screenshots && Object.keys(data.screenshots).length) {
+            renderScreenshots(data.screenshots);
+            ssRendered = true;
+        }
+
+        if (data.diff && data.diff.has_diff) {
+            renderDiff(data.diff);
+            diffRendered = true;
+        }
+
+        var md = "";
+        if (data.result && typeof data.result === "string" && data.result.trim()) {
+            md = data.result;
+        } else if (data.analyses && typeof data.analyses === "object") {
+            Object.keys(data.analyses).forEach(function(host) {
+                var text = data.analyses[host];
+                if (text && text !== "Analysis unavailable.") {
+                    md += "## " + host + "\n\n" + text + "\n\n---\n\n";
+                }
+            });
+        }
+
+        renderAIReport(md, false);
+    }
+
+    function setBusy(busy) {
+        dom.btn.disabled             = busy;
+        dom.btnSpinner.style.display = busy ? "block" : "none";
+        dom.btnLabel.textContent     = busy ? "Scanning…" : "Start scan";
+    }
+    function showError(msg) {
+        dom.errorBox.textContent   = msg;
+        dom.errorBox.style.display = "block";
+    }
+    function resetUI() {
+        dom.errorBox.style.display      = "none";
+        dom.reconnect.style.display     = "none";
+        dom.rptSection.style.display    = "none";
+        dom.exportBtn.style.display     = "none";
+        dom.exportBtn.classList.remove("exporting");
+        dom.ssSection.style.display     = "none";
+        dom.diffSection.style.display   = "none";
+        dom.diffSection.innerHTML       = "";
+        dom.rptBody.innerHTML           = "";
+        dom.ssGrid.innerHTML            = "";
+        dom.tlSection.style.display     = "none";
+        dom.logSection.style.display    = "none";
+        dom.logBody.innerHTML           = "";
+        dom.tlSteps.forEach(function(el) { el.classList.remove("done", "active"); });
+        dom.tlMsg.textContent        = STAGE_LABELS.initializing;
+        dom.tlMsg.style.color        = "var(--accent)";
+        dom.tlSpinner.style.display  = "block";
+        if (dom.tlBar) dom.tlBar.style.width = "0%";
+        lastLogLen   = 0;
+        ssRendered   = false;
+        diffRendered = false;
+        stopPolling();
+    }
+
+    function exportPDF() {
+        var btn     = dom.exportBtn;
+        var content = dom.rptBody;
+        if (!content || !content.innerHTML.trim()) return;
+
+        btn.classList.add("exporting");
+        btn.querySelector(".pdf-icon") && (btn.querySelector(".pdf-icon").style.display = "none");
+
+        var clone = content.cloneNode(true);
+        clone.style.cssText = [
+            "background:#0a0b0d",
+            "color:#f2f3ee",
+            "padding:24px 28px",
+            "font-family:'JetBrains Mono',monospace",
+            "font-size:13px",
+            "line-height:1.8",
+            "width:1024px",
+            "box-sizing:border-box",
+        ].join(";");
+
+        var styleBlock = document.createElement("style");
+        styleBlock.textContent = [
+            "h1,h2,h3,h4,p,pre,blockquote,li,table,tr {",
+            "  page-break-inside: avoid !important;",
+            "  break-inside: avoid !important;",
+            "}",
+        ].join("\n");
+        clone.insertBefore(styleBlock, clone.firstChild);
+
+        var wrapTargets = clone.querySelectorAll("pre, code, p, td, li");
+        wrapTargets.forEach(function(el) {
+            var tag = el.tagName.toLowerCase();
+            el.style.wordBreak    = "break-word";
+            el.style.overflowWrap = "break-word";
+            if (tag === "pre" || tag === "code") {
+                el.style.whiteSpace = "pre-wrap";
+                el.style.overflowX  = "visible";
+            } else {
+                el.style.whiteSpace = "normal";
+            }
+        });
+
+        clone.style.display = "block";
+        Array.prototype.forEach.call(clone.children, function(child) {
+            var cs = window.getComputedStyle(child);
+            if (cs.display === "flex" || cs.display === "grid" ||
+                cs.display === "inline-flex" || cs.display === "inline-grid") {
+                child.style.setProperty("display", "block", "important");
+            }
+        });
+
+        var stamp = document.createElement("div");
+        stamp.style.cssText = "font-size:11px;color:#62646c;margin-bottom:24px;padding-bottom:12px;border-bottom:1px solid #21242e;";
+        stamp.textContent   = "BountyHub — AI Vulnerability Intelligence Report  •  " + new Date().toUTCString();
+        clone.insertBefore(stamp, clone.firstChild);
+
+        html2pdf()
+            .set({
+                margin      : [8, 8, 8, 8],
+                filename    : "BountyHub_AI_Report.pdf",
+                image       : { type: "jpeg", quality: 0.95 },
+                html2canvas : {
+                    scale          : 2,
+                    useCORS        : true,
+                    backgroundColor: "#0a0b0d",
+                    logging        : false,
+                    windowWidth    : 1024,
+                },
+                jsPDF       : { unit: "mm", format: "a4", orientation: "portrait" },
+                pagebreak   : { mode: ["css", "legacy"] },
+            })
+            .from(clone)
+            .save()
+            .then(function() {
+                btn.classList.remove("exporting");
+                btn.querySelector(".pdf-icon") && (btn.querySelector(".pdf-icon").style.display = "");
+            })
+            .catch(function(err) {
+                btn.classList.remove("exporting");
+                btn.querySelector(".pdf-icon") && (btn.querySelector(".pdf-icon").style.display = "");
+                console.error("PDF export failed:", err);
+            });
+    }
+
+    function escHtml(str) {
+        if (!str) return "";
+        return String(str)
+            .replace(/&/g,  "&amp;")
+            .replace(/</g,  "&lt;")
+            .replace(/>/g,  "&gt;")
+            .replace(/"/g,  "&quot;")
+            .replace(/'/g,  "&#039;");
+    }
+
+    return { startScan: startScan, closeLightbox: closeLightbox, exportPDF: exportPDF };
+})();
+</script>
+{% endif %}
+{% endblock %}

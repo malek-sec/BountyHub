@@ -1,0 +1,175 @@
+/* ============================================================
+   BountyHub — theme.css
+   Dark-technical design system. Bootstrap-free.
+   Import this once in your base template, before page styles.
+   Every value derives from tokens — never hardcode hex/spacing.
+   ============================================================ */
+
+@import url('https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap');
+
+/* ---------- TOKENS ---------- */
+:root {
+  /* surfaces */
+  --bg: #0a0b0d;
+  --bg-soft: #101216;
+  --surface: #14161c;
+  --surface-2: #191c24;
+  --line: #21242e;
+  --line-bright: #2d313d;
+
+  /* text — layered, never pure white */
+  --ink: #f2f3ee;
+  --ink-soft: #9a9c98;
+  --ink-faint: #62646c;
+
+  /* single accent + its glow */
+  --accent: #c4f244;
+  --accent-dim: #8aab2e;
+  --glow: rgba(196, 242, 68, 0.10);
+
+  /* functional severity colors (not decorative) */
+  --red: #ff5d5d;
+  --orange: #ffa53d;
+  --yellow: #ffd84d;
+  --blue: #5db4ff;
+
+  /* spacing — 8px system */
+  --s1: 8px; --s2: 16px; --s3: 24px; --s4: 32px; --s5: 48px; --s6: 64px;
+
+  /* radius scale */
+  --r-sm: 8px; --r-md: 12px; --r-lg: 16px; --r-pill: 100px;
+
+  /* type scale — 1.25 (Major Third) */
+  --t-xs: 0.8rem; --t-sm: 1rem; --t-md: 1.25rem;
+  --t-lg: 1.563rem; --t-xl: 1.953rem; --t-2xl: 2.441rem; --t-3xl: 3.052rem;
+
+  /* fonts — three roles */
+  --font-display: 'Instrument Serif', serif;
+  --font-body: 'Space Grotesk', sans-serif;
+  --font-mono: 'JetBrains Mono', monospace;
+}
+
+/* ---------- RESET ---------- */
+*, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+
+body {
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--font-body);
+  font-size: var(--t-sm);
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+/* ambient glow — atmosphere, not flat fill */
+body::before {
+  content: ""; position: fixed; inset: 0; z-index: 0; pointer-events: none;
+  background: radial-gradient(700px circle at 88% -8%, var(--glow), transparent 55%);
+}
+
+/* ---------- SCROLLBAR ---------- */
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track { background: var(--bg); }
+::-webkit-scrollbar-thumb { background: var(--line-bright); border-radius: var(--r-pill); }
+::-webkit-scrollbar-thumb:hover { background: var(--ink-faint); }
+
+/* ---------- TYPOGRAPHY ---------- */
+h1, h2, h3 { font-family: var(--font-display); font-weight: 400; letter-spacing: -0.3px; line-height: 1.15; }
+h1 { font-size: var(--t-3xl); }
+h2 { font-size: var(--t-xl); }
+h3 { font-size: var(--t-lg); }
+a { color: var(--accent); text-decoration: none; transition: color .2s; }
+code, pre, .mono { font-family: var(--font-mono); }
+.eyebrow {
+  font-family: var(--font-mono); font-size: var(--t-xs); letter-spacing: .15em;
+  text-transform: uppercase; color: var(--accent);
+}
+.muted { color: var(--ink-soft); }
+.faint { color: var(--ink-faint); }
+
+/* ---------- BUTTONS ---------- */
+.btn {
+  border: 1px solid transparent; border-radius: var(--r-pill);
+  font-family: var(--font-body); font-weight: 600; font-size: 14px;
+  cursor: pointer; transition: all .2s; padding: 11px 22px;
+  display: inline-flex; align-items: center; gap: 8px;
+}
+.btn-primary { background: var(--accent); color: var(--bg); }
+.btn-primary:hover { transform: translateY(-2px); box-shadow: 0 10px 28px var(--glow); }
+.btn-ghost { background: transparent; color: var(--ink); border-color: var(--line-bright); }
+.btn-ghost:hover { border-color: var(--ink-soft); background: var(--bg-soft); }
+
+/* ---------- CARD / PANEL ---------- */
+.card, .panel {
+  background: var(--surface); border: 1px solid var(--line);
+  border-radius: var(--r-md); overflow: hidden;
+}
+.card:hover { border-color: var(--line-bright); }
+.panel-head {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: var(--s3); border-bottom: 1px solid var(--line);
+}
+
+/* ---------- FORMS ---------- */
+input, textarea, select {
+  background: var(--bg-soft); border: 1px solid var(--line);
+  border-radius: var(--r-sm); color: var(--ink); font-family: var(--font-body);
+  font-size: 14px; padding: 11px 14px; width: 100%; transition: border-color .2s, box-shadow .2s;
+}
+input:focus, textarea:focus, select:focus {
+  outline: none; border-color: var(--accent-dim);
+  box-shadow: 0 0 0 3px var(--glow);
+}
+label { font-size: 13px; color: var(--ink-soft); margin-bottom: 6px; display: block; }
+
+/* ---------- SEVERITY BADGES ---------- */
+.sev {
+  font-family: var(--font-mono); font-size: 10px; font-weight: 600; letter-spacing: .08em;
+  padding: 4px 9px; border-radius: var(--r-sm); text-transform: uppercase; display: inline-block;
+}
+.sev.crit { background: rgba(255,93,93,.14); color: var(--red); }
+.sev.high { background: rgba(255,165,61,.14); color: var(--orange); }
+.sev.med  { background: rgba(255,216,77,.14); color: var(--yellow); }
+.sev.low  { background: rgba(93,180,255,.14); color: var(--blue); }
+.sev.info { background: rgba(154,156,152,.14); color: var(--ink-soft); }
+
+/* ---------- TABLE ---------- */
+table { width: 100%; border-collapse: collapse; }
+th {
+  font-family: var(--font-mono); font-size: 11px; letter-spacing: .08em;
+  text-transform: uppercase; color: var(--ink-faint); text-align: start;
+  padding: 12px var(--s3); border-bottom: 1px solid var(--line);
+}
+td { padding: 14px var(--s3); border-bottom: 1px solid var(--line); font-size: 14px; }
+tbody tr { transition: background .18s; }
+tbody tr:hover { background: var(--surface-2); }
+
+/* ---------- TERMINAL BLOCK ---------- */
+.term { font-family: var(--font-mono); font-size: 12.5px; line-height: 1.95; padding: var(--s3); }
+.term .pr { color: var(--accent); }
+.term .ok { color: var(--accent); }
+.term .mut { color: var(--ink-faint); }
+
+/* ---------- PROGRESS ---------- */
+.progress { height: 5px; background: var(--bg); border-radius: var(--r-pill); overflow: hidden; }
+.progress > span {
+  display: block; height: 100%;
+  background: linear-gradient(90deg, var(--accent-dim), var(--accent)); border-radius: var(--r-pill);
+}
+
+/* ---------- LOAD ANIMATION ---------- */
+@keyframes fadeUp { from { opacity: 0; transform: translateY(16px); } to { opacity: 1; transform: translateY(0); } }
+.fade-up { animation: fadeUp .6s ease both; }
+.fade-up.d1 { animation-delay: .06s; } .fade-up.d2 { animation-delay: .12s; }
+.fade-up.d3 { animation-delay: .18s; } .fade-up.d4 { animation-delay: .24s; }
+
+/* ---------- LAYOUT HELPERS ---------- */
+.container { max-width: 1180px; margin: 0 auto; padding: 0 var(--s5); position: relative; z-index: 2; }
+.grid { display: grid; gap: var(--s2); }
+.grid-2 { grid-template-columns: repeat(2, 1fr); }
+.grid-3 { grid-template-columns: repeat(3, 1fr); }
+.grid-4 { grid-template-columns: repeat(4, 1fr); }
+@media (max-width: 1080px) { .grid-4 { grid-template-columns: repeat(2, 1fr); } .grid-3 { grid-template-columns: 1fr; } }
+@media (max-width: 760px) { .grid-2, .grid-4 { grid-template-columns: 1fr; } .container { padding: 0 var(--s3); } }

@@ -1,0 +1,451 @@
+{% extends "base.html" %}
+{% block title %}{{ bug.title }}{% endblock %}
+
+{% block head %}
+<style>
+    .pv, .pv * { font-family: var(--font-body); }
+    .pv-section { margin-bottom: var(--s3); }
+
+    /* ── Top action bar ──────────────────────────────────────────── */
+    .pv-topbar {
+        display: flex; align-items: center; gap: var(--s1);
+        flex-wrap: wrap; margin-bottom: var(--s3);
+    }
+    .pv-topbar .spacer { flex: 1; }
+
+    /* ── Panel body padding ──────────────────────────────────────── */
+    .pv-body { padding: var(--s4); }
+
+    /* ── Title row ───────────────────────────────────────────────── */
+    .pv-titlerow {
+        display: flex; align-items: center; gap: var(--s1);
+        flex-wrap: wrap; margin-bottom: var(--s2);
+    }
+    .pv-id {
+        margin-left: auto;
+        font-family: var(--font-mono); font-size: 12px;
+        color: var(--ink-faint); letter-spacing: .04em;
+    }
+    .pv-title {
+        font-family: var(--font-display); font-weight: 400;
+        font-size: var(--t-xl); color: var(--ink);
+        letter-spacing: -.02em; line-height: 1.2;
+        margin: 0 0 var(--s3);
+    }
+
+    /* CVSS chip (mono blue) */
+    .cvss-chip {
+        display: inline-flex; align-items: center;
+        padding: 3px 10px; border-radius: var(--r-sm);
+        background: rgba(93,180,255,.10); color: var(--blue);
+        border: 1px solid rgba(93,180,255,.28);
+        font-family: var(--font-mono); font-size: 11px; letter-spacing: .04em;
+    }
+
+    /* ── Meta grid ───────────────────────────────────────────────── */
+    .pv-meta {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+        gap: var(--s2);
+        margin-bottom: var(--s4);
+    }
+    .meta-item {
+        padding: 14px var(--s2);
+        background: var(--bg-soft); border: 1px solid var(--line);
+        border-radius: var(--r-sm);
+    }
+    .meta-label {
+        font-family: var(--font-mono); font-size: 10px;
+        letter-spacing: .08em; text-transform: uppercase;
+        color: var(--ink-faint); margin-bottom: 6px;
+    }
+    .meta-value {
+        color: var(--ink); font-size: 14px; font-weight: 500;
+    }
+
+    /* Status pill inside meta */
+    .status {
+        display: inline-flex; align-items: center; gap: 6px;
+        padding: 3px 10px; border-radius: var(--r-pill);
+        font-family: var(--font-mono); font-size: 10px; letter-spacing: .08em;
+        text-transform: uppercase; font-weight: 600;
+    }
+    .status::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+    .status.open        { background: rgba(255,93,93,.10);  color: var(--red);    border: 1px solid rgba(255,93,93,.28); }
+    .status.in-progress { background: rgba(255,216,77,.10); color: var(--yellow); border: 1px solid rgba(255,216,77,.28); }
+    .status.resolved    { background: rgba(196,242,68,.10); color: var(--accent); border: 1px solid rgba(196,242,68,.28); }
+
+    /* ── Payout card + inline editor ─────────────────────────────── */
+    .payout-value {
+        color: var(--accent); font-family: var(--font-mono);
+        font-size: 15px; font-weight: 600;
+    }
+    .payout-value.zero { color: var(--ink-faint); font-weight: 400; }
+
+    .bstat {
+        display: inline-flex; align-items: center; gap: 6px;
+        padding: 3px 10px; border-radius: var(--r-pill);
+        font-family: var(--font-mono); font-size: 10px; letter-spacing: .08em;
+        text-transform: uppercase; font-weight: 600;
+    }
+    .bstat::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+    .bstat.paid    { background: rgba(196,242,68,.10); color: var(--accent); border: 1px solid rgba(196,242,68,.28); }
+    .bstat.pending { background: rgba(255,216,77,.10); color: var(--yellow); border: 1px solid rgba(255,216,77,.28); }
+    .bstat.unpaid  { background: rgba(255,93,93,.10);  color: var(--red);    border: 1px solid rgba(255,93,93,.28); }
+    .bstat.na      { background: var(--surface-2);      color: var(--ink-soft); border: 1px solid var(--line-bright); }
+
+    .act {
+        display: inline-flex; align-items: center; padding: 4px 11px;
+        border-radius: var(--r-pill); border: 1px solid var(--line-bright);
+        background: transparent; color: var(--ink-soft);
+        font-family: var(--font-body); font-size: 12px; font-weight: 500;
+        cursor: pointer; text-decoration: none; transition: all .2s;
+    }
+    .act:hover { color: var(--ink); border-color: var(--ink-soft); }
+    .act.danger { color: var(--red); border-color: rgba(255,93,93,.35); }
+    .act.danger:hover { background: rgba(255,93,93,.08); }
+    .act.primary { color: var(--accent); border-color: var(--accent-dim); }
+    .act.primary:hover { background: var(--glow); }
+
+    #payout-form-wrap {
+        display: none; margin-top: var(--s2);
+        padding-top: var(--s2);
+        border-top: 1px solid var(--line);
+    }
+    #payout-form-wrap .fld { margin-bottom: 10px; }
+    #payout-form-wrap label {
+        display: block; margin-bottom: 6px;
+        font-family: var(--font-mono); font-size: 10px;
+        letter-spacing: .05em; text-transform: uppercase;
+        color: var(--ink-faint);
+    }
+    #payout-form-wrap .form-actions {
+        display: flex; gap: var(--s1); margin-top: var(--s2);
+    }
+    #pf-msg {
+        display: none; margin-top: 8px;
+        font-family: var(--font-mono); font-size: 12px;
+    }
+    #pf-msg.ok  { color: var(--accent); }
+    #pf-msg.err { color: var(--red); }
+
+    /* ── Tags ────────────────────────────────────────────────────── */
+    .tags { display: flex; flex-wrap: wrap; gap: 6px; }
+    .tag {
+        display: inline-block; padding: 2px 9px;
+        background: var(--bg-soft); color: var(--ink-soft);
+        border: 1px solid var(--line);
+        border-radius: var(--r-sm);
+        font-family: var(--font-mono); font-size: 11px; letter-spacing: .04em;
+    }
+
+    /* ── Section blocks ──────────────────────────────────────────── */
+    hr.pv-rule {
+        border: none; border-top: 1px solid var(--line);
+        margin: var(--s3) 0;
+    }
+    .section-hd {
+        font-family: var(--font-mono); font-size: 10px;
+        letter-spacing: .12em; text-transform: uppercase;
+        color: var(--accent); margin-bottom: 6px;
+    }
+    .section-h4 {
+        font-family: var(--font-display); font-weight: 400;
+        font-size: var(--t-md); color: var(--ink);
+        margin-bottom: var(--s2);
+    }
+    .content-block {
+        padding: 18px var(--s2);
+        background: var(--bg-soft); border: 1px solid var(--line);
+        border-radius: var(--r-sm);
+        line-height: 1.7; font-size: 14px; color: var(--ink);
+    }
+    .content-block pre {
+        white-space: pre-wrap; margin: 0;
+        font-family: var(--font-mono); font-size: 13px;
+    }
+
+    .poc-image {
+        max-width: 100%;
+        border-radius: var(--r-sm);
+        border: 1px solid var(--line);
+        box-shadow: 0 12px 32px rgba(0,0,0,.45);
+    }
+
+    /* ── CVSS breakdown row ──────────────────────────────────────── */
+    .cvss-row {
+        display: flex; align-items: center; gap: var(--s4);
+        flex-wrap: wrap;
+    }
+    .cvss-row .lbl {
+        font-family: var(--font-mono); font-size: 10px;
+        letter-spacing: .08em; text-transform: uppercase;
+        color: var(--ink-faint);
+    }
+    .cvss-row .num {
+        font-family: var(--font-display); font-size: var(--t-lg);
+        color: var(--ink); margin-top: 2px; letter-spacing: -.02em;
+    }
+    .cvss-row .aside {
+        color: var(--ink-faint); font-family: var(--font-mono);
+        font-size: 11px; margin-left: auto;
+    }
+
+    /* ── Footer ──────────────────────────────────────────────────── */
+    .pv-footer {
+        display: flex; justify-content: space-between; align-items: center;
+        margin-top: var(--s3); padding-top: var(--s2);
+        border-top: 1px solid var(--line);
+        font-family: var(--font-mono); font-size: 11px;
+        color: var(--ink-faint); letter-spacing: .04em;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="pv">
+
+    <!-- Top action bar -->
+    <div class="pv-topbar fade-up">
+        <a href="/archive" class="btn btn-ghost">← Archive</a>
+        {% if feature_enabled('pdf_export') %}
+        <a href="/export/{{ bug.id }}" class="btn btn-primary">Download PDF</a>
+        {% endif %}
+        <div class="spacer"></div>
+        <form method="POST" action="/vulnerability/{{ bug.id }}/delete"
+              style="display:inline;"
+              onsubmit="return confirm('Delete this vulnerability permanently?\n\n{{ bug.title }}\n\nThis action cannot be undone.');">
+            <button type="submit" class="act danger">Delete</button>
+        </form>
+    </div>
+
+    <section class="panel fade-up d1">
+        <div class="pv-body">
+
+            <!-- Title + badges -->
+            {% set sev_map = {'Critical':'crit','High':'high','Medium':'med','Low':'low'} %}
+            <div class="pv-titlerow">
+                <span class="sev {{ sev_map.get(bug.severity, 'info') }}">{{ bug.severity }}</span>
+                <span class="cvss-chip">CVSS {{ bug.cvss_score }}</span>
+                <span class="pv-id">#{{ bug.id }}</span>
+            </div>
+            <h1 class="pv-title">{{ bug.title }}</h1>
+
+            <!-- Metadata grid -->
+            <div class="pv-meta">
+                <div class="meta-item">
+                    <div class="meta-label">Discovery date</div>
+                    <div class="meta-value">{{ bug.date_created.strftime('%Y-%m-%d') }}</div>
+                </div>
+                <div class="meta-item">
+                    <div class="meta-label">Status</div>
+                    <div class="meta-value">
+                        {% if bug.status == 'open' %}
+                            <span class="status open">Open</span>
+                        {% elif bug.status == 'in-progress' %}
+                            <span class="status in-progress">In progress</span>
+                        {% elif bug.status == 'resolved' %}
+                            <span class="status resolved">Resolved</span>
+                        {% else %}
+                            {{ bug.status }}
+                        {% endif %}
+                    </div>
+                </div>
+                <div class="meta-item">
+                    <div class="meta-label">Last updated</div>
+                    <div class="meta-value">
+                        {{ bug.date_updated.strftime('%Y-%m-%d') if bug.date_updated else '—' }}
+                    </div>
+                </div>
+
+                <!-- Payout card -->
+                <div class="meta-item" id="payout-card">
+                    <div class="meta-label">Bounty payout</div>
+                    <div id="payout-amount" class="payout-value {% if not bug.payout or bug.payout == 0 %}zero{% endif %}">
+                        {% if bug.payout and bug.payout > 0 %}
+                            {{ "%.2f"|format(bug.payout) }} {{ bug.currency }}
+                        {% else %}—{% endif %}
+                    </div>
+                    <div style="margin-top:8px;">
+                        {% set bs = bug.bounty_status or 'unpaid' %}
+                        {% set bs_cls = {'paid':'paid','pending':'pending','unpaid':'unpaid','n/a':'na'}.get(bs, 'na') %}
+                        <span id="payout-badge" class="bstat {{ bs_cls }}">{{ bs }}</span>
+                    </div>
+                    <div style="margin-top:10px;">
+                        <button id="payout-edit-btn" class="act"
+                                onclick="document.getElementById('payout-form-wrap').style.display='block';
+                                         this.style.display='none';">
+                            Update payout
+                        </button>
+                    </div>
+
+                    <div id="payout-form-wrap">
+                        <div class="fld">
+                            <label for="pf-amount">Amount</label>
+                            <input type="number" id="pf-amount" min="0" step="0.01"
+                                   placeholder="0.00" value="{{ bug.payout or 0 }}">
+                        </div>
+                        <div class="fld">
+                            <label for="pf-currency">Currency</label>
+                            <select id="pf-currency">
+                                {% for c in ['USD','EUR','GBP','SAR'] %}
+                                <option value="{{ c }}" {% if bug.currency == c %}selected{% endif %}>{{ c }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div class="fld">
+                            <label for="pf-status">Status</label>
+                            <select id="pf-status">
+                                {% for val, lbl in [('unpaid','Unpaid'),('pending','Pending'),
+                                                    ('paid','Paid'),('n/a','N/A')] %}
+                                <option value="{{ val }}" {% if (bug.bounty_status or 'unpaid') == val %}selected{% endif %}>{{ lbl }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div class="form-actions">
+                            <button onclick="savePayout({{ bug.id }})" class="act primary">Save</button>
+                            <button onclick="document.getElementById('payout-form-wrap').style.display='none';
+                                             document.getElementById('payout-edit-btn').style.display='';"
+                                    class="act">Cancel</button>
+                        </div>
+                        <div id="pf-msg"></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Tags -->
+            {% if tags %}
+            <div style="margin-bottom: var(--s3);">
+                <div class="meta-label" style="margin-bottom:8px;">Tags</div>
+                <div class="tags">
+                    {% for tag in tags %}<span class="tag">{{ tag }}</span>{% endfor %}
+                </div>
+            </div>
+            {% endif %}
+
+            <hr class="pv-rule">
+
+            <!-- Steps -->
+            <div style="margin-bottom: var(--s4);">
+                <div class="section-hd">PoC</div>
+                <h4 class="section-h4">Steps to reproduce</h4>
+                <div class="content-block"><pre>{{ bug.steps }}</pre></div>
+            </div>
+
+            <!-- Impact -->
+            <div style="margin-bottom: var(--s4);">
+                <div class="section-hd">Impact</div>
+                <h4 class="section-h4">Business impact</h4>
+                <div class="content-block">{{ bug.impact }}</div>
+            </div>
+
+            <!-- Remediation -->
+            {% if bug.remediation %}
+            <div style="margin-bottom: var(--s4);">
+                <div class="section-hd">Fix</div>
+                <h4 class="section-h4">Remediation</h4>
+                <div class="content-block">{{ bug.remediation }}</div>
+            </div>
+            {% endif %}
+
+            <!-- PoC screenshot -->
+            {% if bug.poc_image %}
+            <div style="margin-bottom: var(--s4);">
+                <div class="section-hd">Evidence</div>
+                <h4 class="section-h4">PoC screenshot</h4>
+                <div style="text-align:center;">
+                    <img src="{{ url_for('static', filename='uploads/' + bug.poc_image) }}"
+                         alt="PoC screenshot" class="poc-image">
+                </div>
+            </div>
+            {% endif %}
+
+            <!-- CVSS breakdown -->
+            <div>
+                <div class="section-hd">Scoring</div>
+                <h4 class="section-h4">CVSS v3.1</h4>
+                <div class="content-block">
+                    <div class="cvss-row">
+                        <div>
+                            <div class="lbl">Base score</div>
+                            <div class="num">{{ bug.cvss_score }}</div>
+                        </div>
+                        <div>
+                            <div class="lbl">Severity</div>
+                            <div style="margin-top:6px;">
+                                <span class="sev {{ sev_map.get(bug.severity, 'info') }}">{{ bug.severity }}</span>
+                            </div>
+                        </div>
+                        <div class="aside">Calculated using CVSS v3.1 calculator</div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="pv-footer">
+                <span>Researcher ID: {{ bug.user_id }}</span>
+                <span>BountyHub security platform</span>
+            </div>
+
+        </div>
+    </section>
+
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+// Preserved API hook: POST /api/vulnerability/{id}/payout with JSON body
+// { payout: Number, currency: String, bounty_status: String }
+// Preserved DOM ids: payout-amount, payout-badge, payout-edit-btn,
+// payout-form-wrap, pf-amount, pf-currency, pf-status, pf-msg.
+function savePayout(bugId) {
+    var payout        = parseFloat(document.getElementById('pf-amount').value) || 0;
+    var currency      = document.getElementById('pf-currency').value;
+    var bounty_status = document.getElementById('pf-status').value;
+    var msg           = document.getElementById('pf-msg');
+
+    fetch('/api/vulnerability/' + bugId + '/payout', {
+        method : 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body   : JSON.stringify({payout: payout, currency: currency, bounty_status: bounty_status}),
+    })
+    .then(function(r) { return r.json().then(function(d) { return {ok: r.ok, data: d}; }); })
+    .then(function(res) {
+        if (!res.ok) {
+            msg.textContent = res.data.error || 'Update failed.';
+            msg.className   = 'err';
+            msg.style.display = 'block';
+            return;
+        }
+        var d = res.data;
+
+        // Update payout amount cell
+        var amtEl = document.getElementById('payout-amount');
+        if (d.payout > 0) {
+            amtEl.textContent = d.payout.toFixed(2) + ' ' + d.currency;
+            amtEl.classList.remove('zero');
+        } else {
+            amtEl.textContent = '—';
+            amtEl.classList.add('zero');
+        }
+
+        // Update bounty-status pill via theme classes (no inline style rewrite)
+        var badgeEl = document.getElementById('payout-badge');
+        var clsMap  = { paid:'paid', pending:'pending', unpaid:'unpaid', 'n/a':'na' };
+        badgeEl.className   = 'bstat ' + (clsMap[d.bounty_status] || 'na');
+        badgeEl.textContent = d.bounty_status;
+
+        // Reset editor UI
+        document.getElementById('payout-form-wrap').style.display = 'none';
+        document.getElementById('payout-edit-btn').style.display  = '';
+        msg.style.display = 'none';
+        bhToast('Payout updated.', 'success');
+    })
+    .catch(function(err) {
+        msg.textContent = 'Network error: ' + err.message;
+        msg.className   = 'err';
+        msg.style.display = 'block';
+    });
+}
+</script>
+{% endblock %}

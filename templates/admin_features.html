@@ -1,0 +1,310 @@
+{% extends "base.html" %}
+{% block title %}Feature Flags{% endblock %}
+
+{% block head %}
+<style>
+    .adm, .adm * { font-family: var(--font-body); }
+    .adm-section { margin-bottom: var(--s3); }
+
+    .adm-header h1 { font-size: var(--t-2xl); color: var(--ink); margin-top: var(--s1); }
+    .adm-header p  { color: var(--ink-soft); margin-top: 6px; font-size: 15px; }
+
+    /* ── Info banner ─────────────────────────────────────────────── */
+    .adm-info {
+        background: rgba(93,180,255,.06); color: var(--ink);
+        border: 1px solid rgba(93,180,255,.24);
+        border-left: 3px solid var(--blue);
+        border-radius: var(--r-sm);
+        padding: 12px var(--s2);
+        font-size: 13px;
+    }
+    .adm-info .lead { color: var(--blue); font-family: var(--font-mono); font-size: 11px; letter-spacing: .08em; text-transform: uppercase; }
+
+    /* ── Flag cards ──────────────────────────────────────────────── */
+    .flag-card {
+        padding: var(--s3);
+        border-left: 2px solid var(--line);
+        transition: transform .2s, border-color .2s, background .2s;
+    }
+    .flag-card:hover    { transform: translateY(-2px); border-color: var(--line-bright); }
+    .flag-card.enabled  { border-left-color: var(--accent); }
+    .flag-card.disabled { border-left-color: var(--red); }
+    .flag-card.updating { opacity: .55; pointer-events: none; }
+
+    .flag-head {
+        display: flex; justify-content: space-between; align-items: flex-start;
+        gap: var(--s2);
+    }
+    .flag-name {
+        font-family: var(--font-mono); font-weight: 600; font-size: 14px;
+        color: var(--ink); word-break: break-all;
+    }
+    .flag-desc { color: var(--ink-soft); font-size: 13px; margin-top: 4px; }
+
+    /* ── Toggle switch (JS hook: .toggle-wrap input) ─────────────── */
+    .toggle-wrap {
+        position: relative; width: 46px; height: 26px; flex-shrink: 0;
+    }
+    .toggle-wrap input { display: none; }
+    .toggle-slider {
+        position: absolute; inset: 0;
+        background: var(--surface-2); border: 1px solid var(--line-bright);
+        border-radius: 26px; cursor: pointer;
+        transition: background .22s, border-color .22s;
+    }
+    .toggle-slider::before {
+        content: ''; position: absolute; left: 3px; top: 3px;
+        width: 18px; height: 18px; border-radius: 50%;
+        background: var(--ink-soft);
+        transition: transform .22s, background .22s;
+    }
+    input:checked + .toggle-slider {
+        background: var(--glow); border-color: var(--accent-dim);
+    }
+    input:checked + .toggle-slider::before {
+        transform: translateX(20px); background: var(--accent);
+    }
+
+    /* ── Rollout control ─────────────────────────────────────────── */
+    .rollout-area {
+        background: var(--bg-soft); border: 1px solid var(--line);
+        border-radius: var(--r-sm);
+        padding: 14px var(--s2);
+        margin-top: var(--s2);
+    }
+    .rollout-head {
+        display: flex; justify-content: space-between; align-items: center;
+    }
+    .rollout-label {
+        font-family: var(--font-mono); font-size: 11px;
+        letter-spacing: .05em; text-transform: uppercase;
+        color: var(--ink-faint);
+    }
+    .rollout-percentage {
+        color: var(--accent); font-family: var(--font-mono);
+        font-weight: 600; font-size: 14px;
+    }
+    .rollout-slider {
+        -webkit-appearance: none; appearance: none;
+        width: 100%; height: 4px; border-radius: var(--r-pill);
+        background: var(--line-bright); outline: none; cursor: pointer;
+        margin-top: 10px;
+        padding: 0; border: none;
+    }
+    .rollout-slider::-webkit-slider-thumb {
+        -webkit-appearance: none; width: 16px; height: 16px;
+        border-radius: 50%; background: var(--accent);
+        cursor: pointer; box-shadow: 0 0 8px var(--glow);
+    }
+    .rollout-slider::-moz-range-thumb {
+        width: 16px; height: 16px; border-radius: 50%;
+        background: var(--accent); cursor: pointer; border: none;
+        box-shadow: 0 0 8px var(--glow);
+    }
+    .rollout-slider:focus { box-shadow: none; }
+
+    .presets {
+        display: flex; gap: 6px; margin-top: 10px;
+    }
+    .preset-btn {
+        background: transparent; border: 1px solid var(--line-bright);
+        color: var(--ink-soft);
+        border-radius: var(--r-pill);
+        padding: 3px 10px;
+        font-family: var(--font-mono); font-size: 11px;
+        cursor: pointer; transition: all .15s;
+    }
+    .preset-btn:hover { border-color: var(--accent-dim); color: var(--accent); }
+
+    /* ── Status badge (JS classes preserved) ─────────────────────── */
+    .flag-status {
+        display: inline-flex; align-items: center; gap: 6px;
+        padding: 4px 10px; margin-top: var(--s2);
+        border-radius: var(--r-pill);
+        font-family: var(--font-mono); font-size: 10px;
+        letter-spacing: .08em; text-transform: uppercase; font-weight: 600;
+    }
+    .flag-status::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+    .flag-status-on      { background: rgba(196,242,68,.10); color: var(--accent); border: 1px solid rgba(196,242,68,.28); }
+    .flag-status-partial { background: rgba(255,216,77,.10); color: var(--yellow); border: 1px solid rgba(255,216,77,.28); }
+    .flag-status-off     { background: rgba(255,93,93,.10);  color: var(--red);    border: 1px solid rgba(255,93,93,.28); }
+
+    .flag-meta {
+        margin-top: var(--s2); padding-top: var(--s2);
+        border-top: 1px solid var(--line);
+        font-family: var(--font-mono); font-size: 11px; color: var(--ink-faint);
+        letter-spacing: .04em;
+    }
+
+    /* ── Empty ───────────────────────────────────────────────────── */
+    .empty { padding: var(--s6) var(--s3); text-align: center; }
+    .empty h3 { color: var(--ink); margin: var(--s1) 0; }
+    .empty p  { color: var(--ink-soft); }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="adm">
+
+    <header class="adm-header adm-section fade-up">
+        <span class="eyebrow">Admin</span>
+        <h1>Feature flags</h1>
+        <p>Enable or disable features at runtime — no redeploy required.</p>
+    </header>
+
+    <div class="adm-info adm-section fade-up d1">
+        <span class="lead">Info</span>
+        <span style="margin-left:8px;">Changes take effect immediately. Rollout percentage controls the fraction of users that see the feature.</span>
+    </div>
+
+    {% if flags %}
+    <div class="grid grid-2 fade-up d2">
+        {% for flag in flags %}
+        <div class="card flag-card {% if flag.enabled %}enabled{% else %}disabled{% endif %}"
+             data-flag-id="{{ flag.id }}">
+
+            <div class="flag-head">
+                <div style="flex:1; min-width:0;">
+                    <div class="flag-name">{{ flag.name }}</div>
+                    <div class="flag-desc">{{ flag.description }}</div>
+                </div>
+                <label class="toggle-wrap" title="Toggle flag">
+                    <input type="checkbox" {% if flag.enabled %}checked{% endif %}
+                           onchange="toggleFlag(this.closest('.flag-card').dataset.flagId, this)">
+                    <span class="toggle-slider"></span>
+                </label>
+            </div>
+
+            <div class="rollout-area">
+                <div class="rollout-head">
+                    <span class="rollout-label">Gradual rollout</span>
+                    <span class="rollout-percentage">{{ flag.rollout_percentage }}%</span>
+                </div>
+                <input type="range" min="0" max="100" value="{{ flag.rollout_percentage }}"
+                       class="rollout-slider"
+                       oninput="this.closest('.flag-card').querySelector('.rollout-percentage').textContent = this.value + '%'"
+                       onchange="updateRollout('{{ flag.id }}', this.value)">
+                <div class="presets">
+                    {% for pct in [0, 25, 50, 100] %}
+                    <button type="button" class="preset-btn" data-flag-id="{{ flag.id }}"
+                            onclick="setRollout('{{ flag.id }}', {{ pct }})">{{ pct }}%</button>
+                    {% endfor %}
+                </div>
+            </div>
+
+            {% if flag.enabled %}
+                {% if flag.rollout_percentage == 100 %}
+                <div class="flag-status flag-status-on">Enabled — 100%</div>
+                {% elif flag.rollout_percentage > 0 %}
+                <div class="flag-status flag-status-partial">Partial rollout — {{ flag.rollout_percentage }}%</div>
+                {% else %}
+                <div class="flag-status flag-status-off">Enabled but 0% rollout</div>
+                {% endif %}
+            {% else %}
+                <div class="flag-status flag-status-off">Disabled</div>
+            {% endif %}
+
+            <div class="flag-meta">
+                Last updated: {{ flag.updated_at.strftime('%Y-%m-%d %H:%M') if flag.updated_at else 'N/A' }}
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+
+    {% else %}
+    <section class="panel fade-up d2">
+        <div class="empty">
+            <span class="eyebrow">No flags</span>
+            <h3>No feature flags defined</h3>
+            <p>Add feature flags via the database or application code.</p>
+        </div>
+    </section>
+    {% endif %}
+
+</div><!-- /adm -->
+{% endblock %}
+
+{% block scripts %}
+<script>
+    // Endpoint hooks preserved: POST /admin/features/{id}/toggle, /rollout.
+    // DOM hooks preserved: .flag-card[data-flag-id], .toggle-wrap input,
+    // .rollout-slider, .rollout-percentage, .flag-status(-on/-partial/-off),
+    // .preset-btn — and the state classes .enabled/.disabled/.updating.
+
+    function toggleFlag(flagId, checkbox) {
+        var card = checkbox.closest('.flag-card');
+        card.classList.add('updating');
+        fetch('/admin/features/' + flagId + '/toggle', {
+            method: 'POST', headers: {'Content-Type': 'application/json'}
+        })
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+            card.classList.remove('updating');
+            if (data.success) {
+                card.classList.toggle('enabled',  data.enabled);
+                card.classList.toggle('disabled', !data.enabled);
+                updateStatusBadge(card);
+                bhToast(data.enabled ? 'Flag enabled' : 'Flag disabled',
+                        data.enabled ? 'success' : 'info');
+            }
+        })
+        .catch(function() {
+            card.classList.remove('updating');
+            checkbox.checked = !checkbox.checked;
+            bhToast('Error updating flag', 'error');
+        });
+    }
+
+    function updateRollout(flagId, percentage) {
+        var card = document.querySelector('[data-flag-id="' + flagId + '"]');
+        card.classList.add('updating');
+        fetch('/admin/features/' + flagId + '/rollout', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({percentage: parseInt(percentage)})
+        })
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+            card.classList.remove('updating');
+            if (data.success) {
+                updateStatusBadge(card);
+                bhToast('Rollout set to ' + data.percentage + '%', 'success');
+            }
+        })
+        .catch(function() {
+            card.classList.remove('updating');
+            bhToast('Error updating rollout', 'error');
+        });
+    }
+
+    function setRollout(flagId, percentage) {
+        var card   = document.querySelector('[data-flag-id="' + flagId + '"]');
+        var slider = card.querySelector('.rollout-slider');
+        var pctEl  = card.querySelector('.rollout-percentage');
+        slider.value      = percentage;
+        pctEl.textContent = percentage + '%';
+        updateRollout(flagId, percentage);
+    }
+
+    function updateStatusBadge(card) {
+        var enabled    = card.querySelector('input[type="checkbox"]').checked;
+        var percentage = parseInt(card.querySelector('.rollout-percentage').textContent);
+        var badge      = card.querySelector('.flag-status');
+        if (!badge) return;
+
+        if (!enabled) {
+            badge.className   = 'flag-status flag-status-off';
+            badge.textContent = 'Disabled';
+        } else if (percentage === 100) {
+            badge.className   = 'flag-status flag-status-on';
+            badge.textContent = 'Enabled — 100%';
+        } else if (percentage > 0) {
+            badge.className   = 'flag-status flag-status-partial';
+            badge.textContent = 'Partial rollout — ' + percentage + '%';
+        } else {
+            badge.className   = 'flag-status flag-status-off';
+            badge.textContent = 'Enabled but 0% rollout';
+        }
+    }
+</script>
+{% endblock %}
