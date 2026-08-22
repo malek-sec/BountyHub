@@ -2,7 +2,6 @@
 {% block title %}Dashboard{% endblock %}
 
 {% block head %}
-<script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
 <style>
     /* ── Scoped resets so theme.css tokens win over base.html ─────── */
     .dash, .dash * { font-family: var(--font-body); }
@@ -961,99 +960,26 @@ const BH = (() => {
     }
 
     function exportPDF() {
-        var btn     = dom.exportBtn;
-        var content = dom.rptBody;
-        if (!content || !content.innerHTML.trim()) return;
-
-        if (typeof html2pdf === "undefined") {
-            alert("PDF export library failed to load. Please check your internet connection or ad-blocker.");
+        // Server-side PDF via WeasyPrint — the same route the scan-history page
+        // uses. Replaces the old html2pdf/html2canvas approach, which rasterised
+        // the report into a JPEG and produced an unsearchable, blurry document.
+        if (!scanId) {
+            bhToast("No scan selected to export.", "error");
             return;
         }
-
+        var btn = dom.exportBtn;
         btn.classList.add("exporting");
         btn.querySelector(".pdf-icon") && (btn.querySelector(".pdf-icon").style.display = "none");
 
-        var clone = content.cloneNode(true);
-        clone.style.cssText = [
-            "background:#0a0b0d",
-            "color:#f2f3ee",
-            "padding:24px 28px",
-            "font-family:'JetBrains Mono',monospace",
-            "font-size:13px",
-            "line-height:1.8",
-            "width:1024px",
-            "box-sizing:border-box",
-        ].join(";");
+        // Navigating triggers the download; the server sets Content-Disposition
+        // with a filename of Scan_<site>_<date>.pdf.
+        window.location.href = "/scans/" + encodeURIComponent(scanId) + "/export-pdf";
 
-        var styleBlock = document.createElement("style");
-        styleBlock.textContent = [
-            "h1,h2,h3,h4,p,pre,blockquote,li,table,tr {",
-            "  page-break-inside: avoid !important;",
-            "  break-inside: avoid !important;",
-            "}",
-        ].join("\n");
-        clone.insertBefore(styleBlock, clone.firstChild);
-
-        var wrapTargets = clone.querySelectorAll("pre, code, p, td, li");
-        wrapTargets.forEach(function(el) {
-            var tag = el.tagName.toLowerCase();
-            el.style.wordBreak    = "break-word";
-            el.style.overflowWrap = "break-word";
-            if (tag === "pre" || tag === "code") {
-                el.style.whiteSpace = "pre-wrap";
-                el.style.overflowX  = "visible";
-            } else {
-                el.style.whiteSpace = "normal";
-            }
-        });
-
-        clone.style.display = "block";
-        Array.prototype.forEach.call(clone.children, function(child) {
-            var cs = window.getComputedStyle(child);
-            if (cs.display === "flex" || cs.display === "grid" ||
-                cs.display === "inline-flex" || cs.display === "inline-grid") {
-                child.style.setProperty("display", "block", "important");
-            }
-        });
-
-        var stamp = document.createElement("div");
-        stamp.style.cssText = "font-size:11px;color:#62646c;margin-bottom:24px;padding-bottom:12px;border-bottom:1px solid #21242e;";
-        stamp.textContent   = "BountyHub — AI Vulnerability Intelligence Report  •  " + new Date().toUTCString();
-        clone.insertBefore(stamp, clone.firstChild);
-
-        html2pdf()
-            .set({
-                margin      : [8, 8, 8, 8],
-                filename    : "BountyHub_AI_Report.pdf",
-                image       : { type: "jpeg", quality: 0.95 },
-                html2canvas : {
-                    scale          : 2,
-                    useCORS        : true,
-                    backgroundColor: "#0a0b0d",
-                    logging        : false,
-                    // NOTE: do NOT pin windowWidth here. The clone is already
-                    // a fixed 1024px wide, and forcing html2canvas to lay out
-                    // against a 1024px virtual viewport while the real one is
-                    // wider desynchronises the capture origin from the
-                    // element's measured rect — the render is shifted left and
-                    // clipped, and is nearly blank at 1920px. Letting
-                    // html2canvas use the real viewport captures the clone
-                    // correctly at every window size.
-                },
-                jsPDF       : { unit: "mm", format: "a4", orientation: "portrait" },
-                pagebreak   : { mode: ["css", "legacy"] },
-            })
-            .from(clone)
-            .save()
-            .then(function() {
-                btn.classList.remove("exporting");
-                btn.querySelector(".pdf-icon") && (btn.querySelector(".pdf-icon").style.display = "");
-            })
-            .catch(function(err) {
-                btn.classList.remove("exporting");
-                btn.querySelector(".pdf-icon") && (btn.querySelector(".pdf-icon").style.display = "");
-                console.error("PDF export failed:", err);
-            });
+        // The page is not replaced by a download, so restore the button state.
+        setTimeout(function () {
+            btn.classList.remove("exporting");
+            btn.querySelector(".pdf-icon") && (btn.querySelector(".pdf-icon").style.display = "");
+        }, 1500);
     }
 
     function escHtml(str) {

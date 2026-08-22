@@ -3,6 +3,7 @@ import datetime
 import json
 import mimetypes
 import os
+import re
 
 from flask import (Blueprint, abort, current_app, flash, make_response,
                    redirect, render_template, request, url_for)
@@ -313,7 +314,11 @@ def export_pdf(bug_id):
         flash('Access denied', 'error')
         return redirect(url_for('vulnerabilities.home'))
 
-    safe_name = bug.title.replace(" ", "_")[:20]
+    # Allowlist sanitisation + date, so two findings with similar titles
+    # (or repeat exports across days) never produce the same filename.
+    safe_name = re.sub(r'[^A-Za-z0-9]+', '_', bug.title or 'report').strip('_')[:40] or 'report'
+    stamp     = (bug.date_updated or bug.date_created
+                 or datetime.datetime.utcnow()).strftime('%Y-%m-%d_%H%M')
     tags      = json.loads(bug.tags) if bug.tags else []
 
     # H-5: embed PoC image as a base64 data URI — no file:// URIs for WeasyPrint.
@@ -347,5 +352,5 @@ def export_pdf(bug_id):
     response = make_response(pdf)
     response.headers['Content-Type'] = 'application/pdf'
     response.headers['Content-Disposition'] = (
-        f'attachment; filename=Report_{safe_name}.pdf')
+        f'attachment; filename="Report_{safe_name}_{stamp}.pdf"')
     return response

@@ -1,5 +1,6 @@
 import datetime
 import json
+import re
 import tempfile
 import threading
 import uuid
@@ -406,13 +407,18 @@ def export_scan_pdf(scan_id):
             'WeasyPrint render failed for scan %s', scan_id, exc_info=True)
         abort(503)
 
-    safe_target = job.target.replace('.', '_')[:30]
+    # Filename = site + scan date, so repeat scans of the same target never
+    # collide. Allowlist sanitisation: anything not [A-Za-z0-9] becomes '_'.
+    safe_target = re.sub(r'[^A-Za-z0-9]+', '_', job.target).strip('_')[:40] or 'scan'
+    stamp = (job.completed_at or job.created_at
+             or _dt.datetime.utcnow()).strftime('%Y-%m-%d_%H%M')
+    filename = f'Scan_{safe_target}_{stamp}.pdf'
 
     from flask import make_response
     resp = make_response(pdf)
     resp.headers['Content-Type']        = 'application/pdf'
     resp.headers['Content-Disposition'] = (
-        f'attachment; filename=Scan_{safe_target}.pdf')
+        f'attachment; filename="{filename}"')
     return resp
 
 
