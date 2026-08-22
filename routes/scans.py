@@ -5,10 +5,10 @@ import threading
 import uuid
 from pathlib import Path
 
-from flask import Blueprint, current_app, jsonify, render_template, request
+from flask import Blueprint, abort, current_app, jsonify, render_template, request
 from flask_login import current_user, login_required
 
-from extensions import csrf, db, limiter
+from extensions import db, limiter
 from models import ActivityLog, ScanJob, Vulnerability
 from services.scan_service import ScanService
 from services.cve_service  import CVEService
@@ -18,7 +18,6 @@ bp = Blueprint('scans', __name__)
 
 @bp.route('/api/start_scan', methods=['POST'])
 @limiter.limit("5 per minute")
-@csrf.exempt
 @login_required
 def api_start_scan():
     """
@@ -129,7 +128,6 @@ def api_start_scan():
 
 @bp.route('/api/scan_status/<scan_id>', methods=['GET'])
 @login_required
-@csrf.exempt
 def api_scan_status(scan_id):
     """Poll status of a running or completed scan."""
     job = ScanService.get(scan_id)
@@ -168,7 +166,6 @@ def api_scan_status(scan_id):
 
 @bp.route('/api/scan_result/<scan_id>', methods=['GET'])
 @login_required
-@csrf.exempt
 def api_scan_result(scan_id):
     """Return the full result + analyses for a completed scan."""
     job = ScanService.get(scan_id)
@@ -206,7 +203,17 @@ def api_scan_result(scan_id):
 @bp.route('/api/scans', methods=['GET'])
 @login_required
 def api_list_scans():
-    """Return a summary list of all scans for the current user."""
+    """
+    Return a summary list of all scans for the current user.
+
+    Memory-first, then DB — the same shape as api_scan_status,
+    api_scan_result and api_latest_scan. ScanService._scans is an in-process
+    cache that empties on every restart, so a memory-only listing silently
+    reports "no scans" while the database still holds them.
+
+    In-memory records win on scan_id collision: a scan running in THIS process
+    is fresher than its last-synced DB row.
+    """
     _OMIT = {"result", "analyses", "log", "screenshots", "diff",
              "output_dir", "user_id"}
 
@@ -217,14 +224,45 @@ def api_list_scans():
             if job["user_id"] == current_user.id
         ]
 
-    user_scans.sort(key=lambda j: j.get("started_at", ""), reverse=True)
+    seen = {j.get("scan_id") for j in user_scans}
+    for db_job in (ScanJob.query
+                   .filter_by(user_id=current_user.id)
+                   .order_by(ScanJob.created_at.desc(), ScanJob.id.desc())
+                   .all()):
+        if db_job.scan_id in seen:
+            continue
+        user_scans.append({
+            "scan_id":          db_job.scan_id,
+            "target":           db_job.target,
+            "status":           db_job.status,
+            "stage":            db_job.stage,
+            "stage_label":      db_job.stage_label,
+            "hosts_discovered": db_job.hosts_found,
+            "hosts_scanned":    db_job.hosts_scanned,
+            "error":            db_job.error,
+            "started_at":       (db_job.created_at.isoformat()
+                                 if db_job.created_at else None),
+            "completed_at":     (db_job.completed_at.isoformat()
+                                 if db_job.completed_at else None),
+            "source":           "db",
+        })
+
+    user_scans.sort(key=lambda j: j.get("started_at") or "", reverse=True)
     return jsonify({"scans": user_scans, "total": len(user_scans)}), 200
 
 
 @bp.route('/api/scan/latest', methods=['GET'])
 @login_required
 def api_latest_scan():
-    """Return the most recent scan record for the current user."""
+    """
+    Return the most recent scan record for the current user.
+
+    ScanService._scans is an in-process cache that is empty after every server
+    restart, so a memory-only lookup reports "no scans" even when completed
+    scans exist in the database. Fall back to ScanJob exactly like
+    api_scan_status and api_scan_result already do — otherwise the dashboard
+    never restores the last report and the Export PDF button stays hidden.
+    """
     _INTERNAL = {"user_id", "output_dir"}
 
     with ScanService._scans_lock:
@@ -233,19 +271,47 @@ def api_latest_scan():
             if job["user_id"] == current_user.id
         ]
 
-    if not user_jobs:
+    if user_jobs:
+        latest   = max(user_jobs, key=lambda j: j.get("started_at", ""))
+        response = {k: v for k, v in latest.items() if k not in _INTERNAL}
+        response["log"]    = list(response.get("log", []))
+        response["found"]  = True
+        response["source"] = "memory"
+        return jsonify(response), 200
+
+    db_job = (ScanJob.query
+              .filter_by(user_id=current_user.id)
+              .order_by(ScanJob.created_at.desc(), ScanJob.id.desc())
+              .first())
+    if not db_job:
         return jsonify({"found": False}), 200
 
-    latest   = max(user_jobs, key=lambda j: j.get("started_at", ""))
-    response = {k: v for k, v in latest.items() if k not in _INTERNAL}
-    response["log"]   = list(response.get("log", []))
-    response["found"] = True
-    return jsonify(response), 200
+    return jsonify({
+        'found':         True,
+        'scan_id':       db_job.scan_id,
+        'target':        db_job.target,
+        'status':        db_job.status,
+        'stage':         db_job.stage,
+        'stage_label':   db_job.stage_label,
+        'hosts_found':   db_job.hosts_found,
+        'hosts_scanned': db_job.hosts_scanned,
+        'result':        db_job.result,
+        'analyses':      json.loads(db_job.analyses or 'null'),
+        'diff':          json.loads(db_job.diff or 'null'),
+        'log':           json.loads(db_job.log or '[]'),
+        'error':         db_job.error,
+        'created_at':    db_job.created_at.isoformat() if db_job.created_at else None,
+        'completed_at':  db_job.completed_at.isoformat() if db_job.completed_at else None,
+        # Screenshots live only in the in-process cache (they are copied to
+        # static/screenshots/<scan_id>/ at scan time); a restored DB record
+        # simply has none. restoreCompletedScan() handles the empty case.
+        'screenshots':   {},
+        'source':        'db',
+    }), 200
 
 
 @bp.route('/api/scan/<scan_id>/cves', methods=['GET'])
 @login_required
-@csrf.exempt
 def api_scan_cves(scan_id):
     """Query NIST NVD for CVEs matching technologies detected in a completed scan."""
     from flask import request as _req
@@ -309,17 +375,16 @@ def export_scan_pdf(scan_id):
 
     try:
         from weasyprint import HTML as WeasyHTML
-    except ImportError:
-        from flask import abort
+    except Exception:  # ImportError, or OSError from missing Pango/Cairo shared libs
+        current_app.logger.warning(
+            'WeasyPrint unavailable - scan PDF export disabled', exc_info=True)
         abort(503)
 
     job = ScanJob.query.filter_by(
         scan_id=scan_id, user_id=current_user.id).first()
     if not job:
-        from flask import abort
         abort(404)
     if job.status != 'completed':
-        from flask import abort
         abort(409)
 
     report_html = _md.markdown(
@@ -334,7 +399,13 @@ def export_scan_pdf(scan_id):
         now=_dt.datetime.utcnow().strftime('%Y-%m-%d %H:%M UTC'),
     )
 
-    pdf = WeasyHTML(string=html_str).write_pdf()
+    try:
+        pdf = WeasyHTML(string=html_str).write_pdf()
+    except Exception:
+        current_app.logger.error(
+            'WeasyPrint render failed for scan %s', scan_id, exc_info=True)
+        abort(503)
+
     safe_target = job.target.replace('.', '_')[:30]
 
     from flask import make_response
@@ -347,7 +418,6 @@ def export_scan_pdf(scan_id):
 
 @bp.route('/api/bulk_delete', methods=['POST'])
 @login_required
-@csrf.exempt
 def bulk_delete():
     data = request.get_json(silent=True) or {}
     ids  = data.get('ids', [])

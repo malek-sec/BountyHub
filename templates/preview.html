@@ -215,6 +215,7 @@
         <form method="POST" action="/vulnerability/{{ bug.id }}/delete"
               style="display:inline;"
               onsubmit="return confirm('Delete this vulnerability permanently?\n\n{{ bug.title }}\n\nThis action cannot be undone.');">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
             <button type="submit" class="act danger">Delete</button>
         </form>
     </div>
@@ -406,7 +407,10 @@ function savePayout(bugId) {
 
     fetch('/api/vulnerability/' + bugId + '/payout', {
         method : 'POST',
-        headers: {'Content-Type': 'application/json'},
+        headers: {
+            'Content-Type': 'application/json',
+            'X-CSRFToken' : '{{ csrf_token() }}'
+        },
         body   : JSON.stringify({payout: payout, currency: currency, bounty_status: bounty_status}),
     })
     .then(function(r) { return r.json().then(function(d) { return {ok: r.ok, data: d}; }); })

@@ -3,7 +3,7 @@ import json
 from flask import Blueprint, jsonify, request
 from flask_login import current_user, login_required
 
-from extensions import csrf, db
+from extensions import db
 from models import ActivityLog, Vulnerability
 from services.payout_service import PayoutService
 
@@ -11,7 +11,6 @@ bp = Blueprint('payouts', __name__, url_prefix='/api')
 
 
 @bp.route('/vulnerability/<int:bug_id>/payout', methods=['POST'])
-@csrf.exempt
 @login_required
 def update_payout(bug_id):
     bug = Vulnerability.query.get_or_404(bug_id)

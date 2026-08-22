@@ -235,7 +235,11 @@
         var card = checkbox.closest('.flag-card');
         card.classList.add('updating');
         fetch('/admin/features/' + flagId + '/toggle', {
-            method: 'POST', headers: {'Content-Type': 'application/json'}
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRFToken': '{{ csrf_token() }}'
+            }
         })
         .then(function(r) { return r.json(); })
         .then(function(data) {
@@ -260,7 +264,10 @@
         card.classList.add('updating');
         fetch('/admin/features/' + flagId + '/rollout', {
             method: 'POST',
-            headers: {'Content-Type': 'application/json'},
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRFToken': '{{ csrf_token() }}'
+            },
             body: JSON.stringify({percentage: parseInt(percentage)})
         })
         .then(function(r) { return r.json(); })

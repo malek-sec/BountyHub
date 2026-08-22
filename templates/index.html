@@ -607,7 +607,10 @@ const BH = (() => {
         setBusy(true);
         fetch("/api/start_scan", {
             method : "POST",
-            headers: {"Content-Type": "application/json"},
+            headers: {
+                "Content-Type": "application/json",
+                "X-CSRFToken" : "{{ csrf_token() }}"
+            },
             body   : JSON.stringify({target: target}),
         })
         .then(function(r) { return r.json().then(function(d) { return {ok:r.ok, status:r.status, data:d}; }); })
@@ -962,6 +965,11 @@ const BH = (() => {
         var content = dom.rptBody;
         if (!content || !content.innerHTML.trim()) return;
 
+        if (typeof html2pdf === "undefined") {
+            alert("PDF export library failed to load. Please check your internet connection or ad-blocker.");
+            return;
+        }
+
         btn.classList.add("exporting");
         btn.querySelector(".pdf-icon") && (btn.querySelector(".pdf-icon").style.display = "none");
 
@@ -1023,7 +1031,14 @@ const BH = (() => {
                     useCORS        : true,
                     backgroundColor: "#0a0b0d",
                     logging        : false,
-                    windowWidth    : 1024,
+                    // NOTE: do NOT pin windowWidth here. The clone is already
+                    // a fixed 1024px wide, and forcing html2canvas to lay out
+                    // against a 1024px virtual viewport while the real one is
+                    // wider desynchronises the capture origin from the
+                    // element's measured rect — the render is shifted left and
+                    // clipped, and is nearly blank at 1920px. Letting
+                    // html2canvas use the real viewport captures the clone
+                    // correctly at every window size.
                 },
                 jsPDF       : { unit: "mm", format: "a4", orientation: "portrait" },
                 pagebreak   : { mode: ["css", "legacy"] },

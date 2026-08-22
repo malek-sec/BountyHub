@@ -24,14 +24,19 @@ class FeatureFlagService:
     @staticmethod
     def is_enabled(flag_name: str, user_id: int | None = None) -> bool:
         flag = FeatureFlag.query.filter_by(name=flag_name).first()
-        if not flag or not flag.enabled:
+        if not flag:
             return False
+        # An explicit admin toggle wins outright.
+        if flag.enabled:
+            return True
+        # Otherwise fall back to percentage rollout for A/B testing.
+        if flag.rollout_percentage >= 100:
+            return True
         if flag.rollout_percentage > 0 and user_id:
             hash_input = f"{flag_name}:{user_id}".encode()
             user_hash  = int(hashlib.md5(hash_input, usedforsecurity=False).hexdigest(), 16)
-            if (user_hash % 100) < flag.rollout_percentage:
-                return True
-        return flag.rollout_percentage == 100
+            return (user_hash % 100) < flag.rollout_percentage
+        return False
 
 
 def require_feature(flag_name: str):

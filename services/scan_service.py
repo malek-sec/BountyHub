@@ -158,12 +158,22 @@ class ScanService:
         Compare new fingerprint data against the most recent previous completed
         scan for the same target + user within this server session.
         """
-        _EMPTY: dict = {
-            "has_diff":         False,
-            "new_hosts":        [],
-            "new_ports":        {},
-            "previous_scan_at": None,
-        }
+        def _envelope(baseline: str) -> dict:
+            """
+            baseline:
+              "none"        no earlier completed scan exists — nothing to compare
+              "unavailable" an earlier scan exists but its fingerprint data is
+                            not reachable from this process
+              "compared"    a real comparison was performed
+            """
+            return {
+                "has_diff":         False,
+                "new_hosts":        [],
+                "new_ports":        {},
+                "previous_scan_at": None,
+                "baseline":         baseline,
+                "comparable":       baseline == "compared",
+            }
 
         prev_output_dir:   str | None = None
         prev_completed_at: str | None = None
@@ -180,16 +190,31 @@ class ScanService:
                         prev_output_dir   = job.get("output_dir")
 
         if not prev_output_dir:
-            return _EMPTY
+            # compute_diff needs the previous scan's fingerprint.json, reachable
+            # only through output_dir — a filesystem path the ScanJob schema does
+            # not store. So no DB fallback is possible here without a migration.
+            # What we CAN do is ask the DB whether a baseline exists at all, and
+            # refuse to report "nothing changed" when the truth is "nothing to
+            # compare against". Silently conflating the two is the same class of
+            # false negative as reporting 0 live hosts for a crashed probe.
+            from models.scan_job import ScanJob
+
+            prior = (ScanJob.query
+                     .filter(ScanJob.user_id == user_id,
+                             ScanJob.target == target,
+                             ScanJob.status == 'completed',
+                             ScanJob.scan_id != current_scan_id)
+                     .first())
+            return _envelope("unavailable" if prior else "none")
 
         fp_file = Path(prev_output_dir) / EngineConfig.FILE_FINGERPRINT
         if not fp_file.exists():
-            return _EMPTY
+            return _envelope("unavailable")
 
         try:
             old_fp: list = json.loads(fp_file.read_text())
         except Exception:
-            return _EMPTY
+            return _envelope("unavailable")
 
         old_map = {item["host"]: item for item in old_fp if isinstance(item, dict)}
         new_map = {item["host"]: item for item in new_fp  if isinstance(item, dict)}
@@ -209,6 +234,8 @@ class ScanService:
             "new_hosts":        new_hosts,
             "new_ports":        new_ports,
             "previous_scan_at": prev_completed_at,
+            "baseline":         "compared",
+            "comparable":       True,
         }
 
     @classmethod
@@ -285,21 +312,39 @@ class ScanService:
                 cls.append_log(scan_id, recon["events"])
 
                 live_hosts = recon["live_hosts"]
+
+                # Branch on WHY recon produced nothing. A broken probe and a
+                # dead target are different outcomes and must read differently.
+                if recon.get("status") == "error":
+                    cls.update(scan_id,
+                               status="failed",
+                               error=(
+                                   "Live-host detection failed — this is a scanner "
+                                   "fault, NOT a verdict about the target. "
+                                   f"{recon.get('error_reason') or 'cause unknown'}. "
+                                   "No results were produced; fix the tooling and re-run."
+                               ),
+                               completed_at=datetime.datetime.utcnow().isoformat())
+                    return
+
                 if not live_hosts:
                     cls.update(scan_id,
                                status="failed",
                                error=(
-                                   "Reconnaissance found no reachable hosts. "
-                                   "Verify the target domain is correct and publicly accessible."
+                                   "Target appears dead — reconnaissance completed "
+                                   "successfully but found 0 hosts responding on "
+                                   "HTTP/HTTPS. Verify the domain is correct and "
+                                   "publicly accessible."
                                ),
                                completed_at=datetime.datetime.utcnow().isoformat())
                     return
 
                 fallback_note = (
-                    " (WAF fallback: using raw subdomains)"
-                    if recon.get("fallback_used") else ""
+                    " (DEGRADED: hosts unverified by httpx)"
+                    if recon.get("degraded") else ""
                 )
                 cls.update(scan_id,
+                           degraded=bool(recon.get("degraded")),
                            hosts_discovered=len(live_hosts),
                            recon_note=f"{len(live_hosts)} host(s) found{fallback_note}")
 
@@ -361,6 +406,14 @@ class ScanService:
 
                 diff = cls.compute_diff(target, user_id, fp_data, scan_id)
                 cls.update(scan_id, diff=diff)
+                if diff.get("baseline") == "unavailable":
+                    cls.append_log(scan_id, [{
+                        "level": "warning",
+                        "msg": ("[DIFF] A previous scan of this target exists, but "
+                                "its fingerprint data is not reachable from this "
+                                "process (server restarted). No comparison was "
+                                "performed — this is NOT a report of 'no changes'."),
+                    }])
                 if diff["has_diff"]:
                     parts = []
                     if diff["new_hosts"]:
@@ -386,6 +439,24 @@ class ScanService:
                         js_result = JSOracle(output_dir).execute(target, js_urls)
                         cls.append_log(scan_id, js_result["events"])
                         js_data = js_result
+
+                        # Report live vs archived distinctly — an operator must
+                        # never read a coverage number inflated with dead
+                        # archived files that were never actually analyzed.
+                        cls.update(
+                            scan_id,
+                            js_live_analyzed=js_result.get("js_files_analyzed", 0),
+                            js_archived_parked=js_result.get("archived_count", 0),
+                        )
+                        cls.append_log(scan_id, [{
+                            "level": "info",
+                            "msg": (
+                                f"JS coverage — live JS analyzed: "
+                                f"{js_result.get('js_files_analyzed', 0)} | "
+                                f"archived JS parked: "
+                                f"{js_result.get('archived_count', 0)}"
+                            ),
+                        }])
                     except Exception as exc:
                         cls.append_log(scan_id, [{
                             "level": "warning",

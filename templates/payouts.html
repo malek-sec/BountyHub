@@ -315,7 +315,10 @@ async function submitPayout(event, bugId) {
     try {
         var res  = await fetch('/api/vulnerability/' + bugId + '/payout', {
             method : 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRFToken' : '{{ csrf_token() }}'
+            },
             body   : JSON.stringify(body),
         });
         var data = await res.json();

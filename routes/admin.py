@@ -3,7 +3,7 @@ import json
 from flask import Blueprint, flash, jsonify, redirect, render_template, request, url_for
 from flask_login import current_user, login_required
 
-from extensions import csrf, db
+from extensions import db
 from models import FeatureFlag, Vulnerability
 from models.feature_flag import require_feature
 
@@ -22,7 +22,6 @@ def feature_admin():
 
 @bp.route('/features/<int:flag_id>/toggle', methods=['POST'])
 @login_required
-@csrf.exempt
 def toggle_feature(flag_id):
     if current_user.role != 'admin':
         return jsonify({'error': 'Unauthorized'}), 403
@@ -34,7 +33,6 @@ def toggle_feature(flag_id):
 
 @bp.route('/features/<int:flag_id>/rollout', methods=['POST'])
 @login_required
-@csrf.exempt
 def update_rollout(flag_id):
     if current_user.role != 'admin':
         return jsonify({'error': 'Unauthorized'}), 403
@@ -47,7 +45,6 @@ def update_rollout(flag_id):
 
 @bp.route('/bulk/delete', methods=['POST'])
 @login_required
-@csrf.exempt
 @require_feature('bulk_operations')
 def bulk_delete():
     ids = request.json.get('ids', [])
@@ -61,7 +58,6 @@ def bulk_delete():
 
 @bp.route('/bulk/status', methods=['POST'])
 @login_required
-@csrf.exempt
 @require_feature('bulk_operations')
 def bulk_status():
     ids        = request.json.get('ids', [])

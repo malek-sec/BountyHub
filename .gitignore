@@ -40,3 +40,23 @@ flynas_*.txt
 
 # Stale backup files
 *.bak
+
+# Study / teaching copies — never part of the shipped source
+Study_Lab/
+
+# Local agent + editor config (contains machine-specific absolute paths)
+.claude/
+.vscode/
+.idea/
+
+# Binary / generated artefacts
+*.pdf
+*.png
+*.jpg
+*.jpeg
+*.gif
+*.webp
+*.so
+*.log
+!static/uploads/.gitkeep
+!static/screenshots/.gitkeep

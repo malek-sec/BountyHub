@@ -4,7 +4,7 @@ import json
 import mimetypes
 import os
 
-from flask import (Blueprint, current_app, flash, make_response,
+from flask import (Blueprint, abort, current_app, flash, make_response,
                    redirect, render_template, request, url_for)
 from flask_login import current_user, login_required
 from sqlalchemy import func
@@ -12,7 +12,8 @@ from sqlalchemy import func
 try:
     from weasyprint import HTML as WeasyHTML
     _PDF_AVAILABLE = True
-except ImportError:
+except Exception:  # ImportError, or OSError from missing Pango/Cairo shared libs
+    WeasyHTML = None
     _PDF_AVAILABLE = False
 
 from extensions import db
@@ -331,7 +332,12 @@ def export_pdf(bug_id):
 
     html = render_template('pdf_report.html',
                            bug=bug, img_data_uri=img_data_uri, tags=tags)
-    pdf  = WeasyHTML(string=html).write_pdf()
+    try:
+        pdf = WeasyHTML(string=html).write_pdf()
+    except Exception:
+        current_app.logger.error(
+            'WeasyPrint render failed for vulnerability %s', bug.id, exc_info=True)
+        abort(503)
 
     log = ActivityLog(user_id=current_user.id, action='exported',
                       vulnerability_id=bug.id)

@@ -272,6 +272,7 @@
                             {% endif %}
                             <form method="POST" action="/vulnerability/{{ bug.id }}/delete"
                                   onsubmit="return confirm('Delete this vulnerability permanently?\n\n{{ bug.title }}\n\nThis action cannot be undone.');">
+                                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
                                 <button type="submit" class="act danger" title="Delete">Delete</button>
                             </form>
                         </td>
@@ -337,7 +338,10 @@
         try {
             var res  = await fetch('/api/bulk_delete', {
                 method : 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRFToken' : '{{ csrf_token() }}'
+                },
                 body   : JSON.stringify({ ids: ids, type: 'vulnerability' }),
             });
             var data = await res.json();
