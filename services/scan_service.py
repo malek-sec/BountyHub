@@ -26,6 +26,10 @@ class ScanService:
     _scans:      dict           = {}
     _scans_lock: threading.Lock = threading.Lock()
 
+    # Set of scan_ids the user asked to cancel. The running worker checks this
+    # at every stage boundary and aborts cooperatively. Guarded by _scans_lock.
+    _cancel_requested: set = set()
+
     # ── Scan engine availability (resolved once at startup) ───────────────────
     _engine_available: bool = False
     _engine_error:     str | None = None
@@ -37,10 +41,15 @@ class ScanService:
             sys.path.insert(0, v2_root)
         try:
             global ReconModule, FingerprintModule, AIAdvisorModule, EngineConfig
-            from core.recon       import ReconModule
-            from core.fingerprint import FingerprintModule
-            from core.ai_advisor  import AIAdvisorModule
-            from core             import Config as EngineConfig
+            global ActiveReconModule
+            from core.recon        import ReconModule
+            from core.fingerprint  import FingerprintModule
+            from core.active_recon import ActiveReconModule
+            from core.ai_advisor   import AIAdvisorModule
+            from core              import Config as EngineConfig
+            # Expose the engine Config on the class so routes can read the
+            # active-recon kill-switch / defaults without re-importing core.
+            cls.EngineConfig      = EngineConfig
             cls._engine_available = True
             cls._engine_error     = None
         except Exception as exc:
@@ -53,6 +62,65 @@ class ScanService:
     def get(cls, scan_id: str) -> dict | None:
         with cls._scans_lock:
             return cls._scans.get(scan_id)
+
+    # ── Cancellation ──────────────────────────────────────────────────────────
+
+    @classmethod
+    def _is_cancelled(cls, scan_id: str) -> bool:
+        """True if a cancel was requested for this scan (checked by the worker)."""
+        with cls._scans_lock:
+            return scan_id in cls._cancel_requested
+
+    @classmethod
+    def request_cancel(cls, scan_id: str) -> None:
+        """
+        Flag a scan for cancellation and immediately mark it 'cancelled' in the
+        in-memory cache and the DB. A live worker (same process) notices the
+        flag at its next stage boundary and stops; an orphaned DB-only job is
+        simply marked done here. Idempotent.
+        """
+        with cls._scans_lock:
+            cls._cancel_requested.add(scan_id)
+
+        cls.append_log(scan_id, [{
+            "level": "warning",
+            "msg":   "Scan cancelled by user — stopping the pipeline.",
+        }])
+        cls.update(scan_id,
+                   status="cancelled",
+                   stage=None,
+                   stage_label=None,
+                   error="Scan cancelled by user.",
+                   completed_at=datetime.datetime.utcnow().isoformat())
+
+    @classmethod
+    def reconcile_orphaned_scans(cls) -> int:
+        """
+        On process start, no scan worker threads exist yet (they live only in
+        the process that launched them). Any DB row still marked 'running' or
+        'queued' is therefore orphaned — its worker died with a previous
+        process. Mark such rows 'failed' so the dashboard never resurrects a
+        dead scan via its reconnect-on-load logic. Returns the count fixed.
+        """
+        from extensions import db
+        from models.scan_job import ScanJob
+
+        try:
+            stale = ScanJob.query.filter(
+                ScanJob.status.in_(["running", "queued"])).all()
+            for job in stale:
+                job.status       = "failed"
+                job.stage        = None
+                job.stage_label  = None
+                job.error        = ("Interrupted — the server restarted while this "
+                                     "scan was in progress. Please start a new scan.")
+                job.completed_at = datetime.datetime.utcnow()
+            if stale:
+                db.session.commit()
+            return len(stale)
+        except Exception:
+            db.session.rollback()
+            return 0
 
     @classmethod
     def validate_target(cls, raw: str) -> bool:
@@ -290,7 +358,8 @@ class ScanService:
         return public
 
     @classmethod
-    def run_worker(cls, app, scan_id: str, target: str, output_dir: Path) -> None:
+    def run_worker(cls, app, scan_id: str, target: str, output_dir: Path,
+                   run_active_recon: bool = False) -> None:
         """
         Execute the full recon → fingerprint → AI pipeline in a daemon thread.
         Accepts app as a parameter to call app.app_context() without importing
@@ -308,6 +377,8 @@ class ScanService:
                            stage="recon",
                            stage_label="Passive subdomain enumeration + live host probing + screenshots")
 
+                if cls._is_cancelled(scan_id):
+                    return
                 recon = ReconModule(target, output_dir).execute()
                 cls.append_log(scan_id, recon["events"])
 
@@ -391,6 +462,8 @@ class ScanService:
                            stage="fingerprint",
                            stage_label="Port scanning + technology stack fingerprinting")
 
+                if cls._is_cancelled(scan_id):
+                    return
                 fp = FingerprintModule(live_hosts, output_dir).execute()
                 cls.append_log(scan_id, fp["events"])
 
@@ -426,13 +499,68 @@ class ScanService:
                         "msg":   f"[DIFF] Changes detected vs previous scan: {', '.join(parts)}",
                     }])
 
+                # ── Stage 2.5: Active Recon & Fuzzing (Deep scan only) ────
+                # Crawl, directory/param fuzzing, wide port scan and template
+                # scanning. Runs concurrently inside the module; each tool is
+                # rate-capped and time-bounded so the worker never floods a
+                # target or hangs the pipeline. Skipped entirely for a Fast
+                # (passive-only) scan — the pipeline jumps straight to JS-Oracle.
+                if cls._is_cancelled(scan_id):
+                    return
+                active_data: dict = {}
+                if run_active_recon:
+                    cls.update(scan_id,
+                               stage="active_recon",
+                               stage_label=("Active recon & fuzzing — katana crawl, ffuf, "
+                                            "arjun params, naabu ports, nuclei templates"))
+                    try:
+                        active = ActiveReconModule(
+                            target,
+                            live_hosts,
+                            output_dir,
+                            seed_endpoints=recon.get("historical_urls", []),
+                            seed_js=recon.get("js_files", []),
+                        ).execute()
+                        cls.append_log(scan_id, active["events"])
+                        active_data = active
+
+                        ac = active.get("crawl", {})
+                        nx = active.get("nuclei", {})
+                        cls.update(
+                            scan_id,
+                            crawl_endpoints=ac.get("count", 0),
+                            fuzz_paths=active.get("fuzz", {}).get("count", 0),
+                            hidden_params=active.get("params", {}).get("count", 0),
+                            wide_ports=active.get("ports", {}).get("count", 0),
+                            nuclei_findings=nx.get("count", 0),
+                        )
+                    except Exception as exc:
+                        cls.append_log(scan_id, [{
+                            "level": "warning",
+                            "msg":   f"Active Recon module failed: {exc}",
+                        }])
+                else:
+                    cls.append_log(scan_id, [{
+                        "level": "info",
+                        "msg":   ("Fast scan (passive only) — Active Recon & Fuzzing "
+                                  "phase skipped. Re-run as a Deep scan to enable "
+                                  "crawling, fuzzing, wide port scan and nuclei."),
+                    }])
+
                 # ── Stage 3: JS-Oracle Analysis ───────────────────────────
                 cls.update(scan_id,
                            stage="js_oracle",
                            stage_label="JavaScript file analysis — JS-Oracle + Claude AI")
 
+                if cls._is_cancelled(scan_id):
+                    return
                 js_data: dict = {}
-                js_urls = recon.get("js_files", [])
+                # Merge JS files from passive recon and the active crawl (katana
+                # -jc). dict.fromkeys() de-duplicates while preserving order.
+                js_urls = list(dict.fromkeys(
+                    (recon.get("js_files", []) or [])
+                    + (active_data.get("crawl", {}).get("js_files", []) or [])
+                ))
                 if js_urls:
                     try:
                         from core.js_oracle import JSOracle
@@ -473,7 +601,11 @@ class ScanService:
                            stage="ai_analysis",
                            stage_label="Claude AI batch vulnerability analysis")
 
-                ai = AIAdvisorModule(fp_data, output_dir, js_data=js_data).execute()
+                if cls._is_cancelled(scan_id):
+                    return
+                ai = AIAdvisorModule(fp_data, output_dir,
+                                     js_data=js_data,
+                                     active_data=active_data).execute()
                 cls.append_log(scan_id, ai["events"])
 
                 analyses = ai.get("analyses", {})
@@ -499,6 +631,11 @@ class ScanService:
 
                 full_report = "\n\n---\n\n".join(parts) if parts else "No analysis generated."
 
+                # Final cancel check — don't overwrite a 'cancelled' verdict with
+                # 'completed' if the user cancelled during the AI stage.
+                if cls._is_cancelled(scan_id):
+                    return
+
                 cls.update(scan_id,
                            status="completed",
                            stage=None,
@@ -514,8 +651,47 @@ class ScanService:
                     f"🤖 <b>AI Report Generated.</b>"
                 )
 
+                # Attach the full AI report as a PDF to the Telegram notification.
+                # Best-effort: a rendering/network failure is logged but never
+                # affects the scan's completed status.
+                try:
+                    from models.scan_job import ScanJob
+                    from services.pdf_service import render_scan_pdf
+                    job_row = ScanJob.query.filter_by(scan_id=scan_id).first()
+                    if job_row:
+                        pdf_bytes, pdf_name = render_scan_pdf(job_row)
+                        if pdf_bytes:
+                            NotifyService.send_document(
+                                pdf_bytes, pdf_name,
+                                caption=(f"📄 <b>Scan Report</b> — {target}\n"
+                                         f"🔍 Hosts scanned: {len(fp_data)}"))
+                            cls.append_log(scan_id, [{
+                                "level": "info",
+                                "msg":   "PDF report sent to Telegram.",
+                            }])
+                except Exception as exc:
+                    cls.append_log(scan_id, [{
+                        "level": "warning",
+                        "msg":   f"Could not send PDF report to Telegram: {exc}",
+                    }])
+
             except Exception as exc:
+                # Surface the failure in BOTH the persisted status AND the live
+                # scan log the operator is watching — a bare status flip with no
+                # log line reads like the scan silently vanished mid-run.
                 cls.update(scan_id,
                            status="failed",
                            error=f"Unexpected internal error: {exc}",
                            completed_at=datetime.datetime.utcnow().isoformat())
+                cls.append_log(scan_id, [{
+                    "level": "error",
+                    "msg":   f"Scan aborted — unexpected internal error: {exc}",
+                }])
+                # Best-effort failure ping (successes already notify). Never let a
+                # notification error mask the original exception.
+                try:
+                    NotifyService.notify_all(
+                        f"❌ <b>Scan Failed:</b> {target}\n"
+                        f"⚠️ <b>Error:</b> {exc}")
+                except Exception:
+                    pass
