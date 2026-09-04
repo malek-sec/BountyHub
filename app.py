@@ -79,9 +79,52 @@ def create_app(config_class=Config) -> Flask:
     # ── DB bootstrap ─────────────────────────────────────────────────────────
     with app.app_context():
         db.create_all()
+        _ensure_schema()
+        # Any scan still marked running/queued in the DB is orphaned — its
+        # worker thread died with a previous process. Fail them on boot so the
+        # dashboard never reconnects to a dead scan the user cannot stop.
+        _orphans = ScanService.reconcile_orphaned_scans()
+        if _orphans:
+            app.logger.info("Reconciled %d orphaned scan(s) on startup.", _orphans)
         _seed_defaults(app)
 
     return app
+
+
+def _ensure_schema() -> None:
+    """
+    Graceful, idempotent schema top-up for columns added after a table was
+    first created by db.create_all() (which never ALTERs existing tables).
+
+    This complements the Alembic migration in migrations/versions/: deployments
+    that run `flask db upgrade` get the column that way, while existing SQLite
+    databases created via create_all() are upgraded automatically on boot.
+    Safe to run on every start — each column is added only if missing.
+    """
+    from sqlalchemy import inspect, text
+
+    # column_name -> DDL to add it (SQLite supports ADD COLUMN natively)
+    _REQUIRED = {
+        "scan_jobs": {
+            "scan_depth": "ALTER TABLE scan_jobs ADD COLUMN scan_depth VARCHAR(4) DEFAULT 'fast'",
+        },
+    }
+    try:
+        inspector = inspect(db.engine)
+        existing_tables = set(inspector.get_table_names())
+        for table, columns in _REQUIRED.items():
+            if table not in existing_tables:
+                continue
+            have = {c["name"] for c in inspector.get_columns(table)}
+            for col, ddl in columns.items():
+                if col not in have:
+                    db.session.execute(text(ddl))
+                    db.session.commit()
+                    app_logger = __import__("logging").getLogger(__name__)
+                    app_logger.info("Schema top-up: added %s.%s", table, col)
+    except Exception:
+        # Never block startup on a best-effort schema top-up.
+        db.session.rollback()
 
 
 def _seed_defaults(app: Flask) -> None:

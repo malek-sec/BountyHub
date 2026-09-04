@@ -39,6 +39,15 @@
     .status.running   { background: rgba(93,180,255,.10); color: var(--blue);   border: 1px solid rgba(93,180,255,.28); }
     .status.failed    { background: rgba(255,93,93,.10);  color: var(--red);    border: 1px solid rgba(255,93,93,.28); }
     .status.queued    { background: var(--surface-2);      color: var(--ink-soft); border: 1px solid var(--line-bright); }
+    /* Scan-depth badge (fast vs deep) — mirrors the status pill styling */
+    .depth-badge {
+        display: inline-flex; align-items: center;
+        padding: 3px 10px; border-radius: var(--r-pill);
+        font-family: var(--font-mono); font-size: 10px; letter-spacing: .08em;
+        text-transform: uppercase; font-weight: 600;
+    }
+    .depth-badge.fast { background: var(--surface-2);      color: var(--ink-soft); border: 1px solid var(--line-bright); }
+    .depth-badge.deep { background: rgba(255,159,67,.12);  color: #ff9f43;         border: 1px solid rgba(255,159,67,.32); }
     .dot-pulse {
         display: inline-block; width: 7px; height: 7px; border-radius: 50%;
         background: currentColor; animation: dp-pulse 1.4s ease-in-out infinite;
@@ -280,6 +289,7 @@
                         </th>
                         <th>Target</th>
                         <th>Status</th>
+                        <th>Depth</th>
                         <th>Hosts found</th>
                         <th>Hosts scanned</th>
                         <th>Started</th>
@@ -303,6 +313,13 @@
                                 <span class="status failed">failed</span>
                             {% else %}
                                 <span class="status queued">{{ job.status }}</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% if job.scan_depth == 'deep' %}
+                                <span class="depth-badge deep">Deep</span>
+                            {% else %}
+                                <span class="depth-badge fast">Fast</span>
                             {% endif %}
                         </td>
                         <td class="cell-mono">{{ job.hosts_found or '—' }}</td>
@@ -333,7 +350,7 @@
 
                     {% if job.status == 'completed' and job.result %}
                     <tr class="report-row">
-                        <td colspan="8">
+                        <td colspan="9">
                             <div id="report-{{ job.scan_id }}"
                                  class="report-panel"
                                  data-markdown="{{ job.result | e }}">
@@ -346,6 +363,7 @@
                                         <tbody>
                                             <tr><th>Target</th>       <td><span class="accent">{{ job.target }}</span></td></tr>
                                             <tr><th>Scan ID</th>      <td>{{ job.scan_id }}</td></tr>
+                                            <tr><th>Scan depth</th>   <td>{{ 'Deep (Active Recon & Fuzzing)' if job.scan_depth == 'deep' else 'Fast (passive only)' }}</td></tr>
                                             <tr><th>Hosts found</th>  <td>{{ job.hosts_found or 0 }}</td></tr>
                                             <tr><th>Hosts scanned</th><td>{{ job.hosts_scanned or 0 }}</td></tr>
                                             <tr><th>Stage</th>        <td>{{ job.stage or '—' }}</td></tr>

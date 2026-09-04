@@ -10,6 +10,8 @@ class ScanJob(db.Model):
     user_id         = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
     target          = db.Column(db.String(253), nullable=False)
     status          = db.Column(db.String(20), default='queued')
+    # Scan scope: 'fast' (passive only) or 'deep' (adds Active Recon & Fuzzing).
+    scan_depth      = db.Column(db.String(4), default='fast', nullable=True)
     stage           = db.Column(db.String(50),  nullable=True)
     stage_label     = db.Column(db.String(150), nullable=True)
     hosts_found     = db.Column(db.Integer, default=0)

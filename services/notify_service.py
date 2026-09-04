@@ -57,6 +57,32 @@ class NotifyService:
             pass
 
     @staticmethod
+    def send_document(file_bytes: bytes, filename: str, caption: str = "") -> None:
+        """
+        Upload a document (e.g. the scan PDF report) to the Telegram chat via
+        sendDocument (multipart/form-data).
+
+        * No-op when TELEGRAM_TOKEN / TELEGRAM_CHAT_ID are unset or file is empty.
+        * 20-second timeout (files are larger than text) — still bounded.
+        * Swallows all exceptions so a Telegram failure never breaks the worker.
+        """
+        token   = current_app.config.get("TELEGRAM_TOKEN", "").strip()
+        chat_id = current_app.config.get("TELEGRAM_CHAT_ID", "").strip()
+        if not token or not chat_id or not file_bytes:
+            return
+        url  = f"https://api.telegram.org/bot{token}/sendDocument"
+        data = {"chat_id": chat_id}
+        if caption:
+            data["caption"]    = caption[:1024]   # Telegram caption hard limit
+            data["parse_mode"] = "HTML"
+        files = {"document": (filename or "report.pdf", file_bytes, "application/pdf")}
+        try:
+            resp = requests.post(url, data=data, files=files, timeout=20)
+            resp.raise_for_status()
+        except Exception:
+            pass
+
+    @staticmethod
     def send_slack(message: str) -> None:
         """
         POST to SLACK_WEBHOOK_URL using Slack Block Kit (section + mrkdwn).

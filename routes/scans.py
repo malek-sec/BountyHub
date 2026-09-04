@@ -45,6 +45,19 @@ def api_start_scan():
     raw    = (body.get("target") or "").strip()
     target = raw.lower()
 
+    # Scan depth toggle: Fast (passive only, default) vs Deep (adds the Active
+    # Recon & Fuzzing phase). Accept a few truthy spellings for convenience.
+    # A global kill-switch in the engine Config can force this off regardless
+    # of what the client requests.
+    raw_flag = body.get("run_active_recon", False)
+    if isinstance(raw_flag, str):
+        run_active_recon = raw_flag.strip().lower() in ("1", "true", "yes", "on")
+    else:
+        run_active_recon = bool(raw_flag)
+    engine_cfg = getattr(ScanService, "EngineConfig", None)
+    if engine_cfg is not None and not getattr(engine_cfg, "ACTIVE_RECON_ENABLED", True):
+        run_active_recon = False
+
     if not target:
         return jsonify({"error": "Missing required field: 'target'"}), 400
 
@@ -94,6 +107,8 @@ def api_start_scan():
             "error":            None,
             "log":              [],
             "output_dir":       str(output_dir),
+            "run_active_recon": run_active_recon,
+            "scan_depth":       "deep" if run_active_recon else "fast",
         }
 
     try:
@@ -102,6 +117,7 @@ def api_start_scan():
             user_id=current_user.id,
             target=target,
             status='queued',
+            scan_depth=("deep" if run_active_recon else "fast"),
         )
         db.session.add(new_job)
         db.session.commit()
@@ -114,20 +130,26 @@ def api_start_scan():
     thread = threading.Thread(
         target=ScanService.run_worker,
         args=(app, scan_id, target, output_dir),
+        kwargs={"run_active_recon": run_active_recon},
         daemon=True,
         name=f"bh-scan-{scan_id[:8]}",
     )
     thread.start()
 
     return jsonify({
-        "scan_id":  scan_id,
-        "target":   target,
-        "status":   "running",
-        "poll_url": f"/api/scan_status/{scan_id}",
+        "scan_id":    scan_id,
+        "target":     target,
+        "status":     "running",
+        "scan_depth": "deep" if run_active_recon else "fast",
+        "poll_url":   f"/api/scan_status/{scan_id}",
     }), 202
 
 
 @bp.route('/api/scan_status/<scan_id>', methods=['GET'])
+@limiter.exempt  # High-frequency live-log poll (~1 req / 3s). It is read-only
+                 # and user-scoped, so it must not be governed by the global
+                 # abuse limit ("50 per hour") — otherwise an active scan trips
+                 # HTTP 429 within minutes and the terminal spams poll errors.
 @login_required
 def api_scan_status(scan_id):
     """Poll status of a running or completed scan."""
@@ -141,6 +163,7 @@ def api_scan_status(scan_id):
                 'scan_id':       db_job.scan_id,
                 'target':        db_job.target,
                 'status':        db_job.status,
+                'scan_depth':    db_job.scan_depth or 'fast',
                 'stage':         db_job.stage,
                 'stage_label':   db_job.stage_label,
                 'hosts_found':   db_job.hosts_found,
@@ -163,6 +186,39 @@ def api_scan_status(scan_id):
     response  = {k: v for k, v in job.items() if k not in _INTERNAL}
     response["log"] = list(response.get("log", []))
     return jsonify(response), 200
+
+
+@bp.route('/api/scan/<scan_id>/cancel', methods=['POST'])
+@login_required
+def api_cancel_scan(scan_id):
+    """
+    Cancel a running/queued scan.
+
+    Ownership is verified against the in-memory record first, then the DB.
+    A live worker (same process) stops at its next stage boundary; an orphaned
+    DB-only job is simply marked 'cancelled'. Terminal scans are left as-is.
+    """
+    _TERMINAL = {"completed", "failed", "cancelled"}
+
+    job = ScanService.get(scan_id)
+    if job is not None:
+        if job.get("user_id") != current_user.id:
+            return jsonify({"error": "Forbidden"}), 403
+        if job.get("status") in _TERMINAL:
+            return jsonify({"status": job.get("status"),
+                            "message": "Scan already finished — nothing to cancel."}), 200
+    else:
+        db_job = ScanJob.query.filter_by(
+            scan_id=scan_id, user_id=current_user.id).first()
+        if not db_job:
+            return jsonify({"error": "Scan not found"}), 404
+        if db_job.status in _TERMINAL:
+            return jsonify({"status": db_job.status,
+                            "message": "Scan already finished — nothing to cancel."}), 200
+
+    ScanService.request_cancel(scan_id)
+    return jsonify({"scan_id": scan_id, "status": "cancelled",
+                    "message": "Scan cancelled."}), 200
 
 
 @bp.route('/api/scan_result/<scan_id>', methods=['GET'])
@@ -236,6 +292,7 @@ def api_list_scans():
             "scan_id":          db_job.scan_id,
             "target":           db_job.target,
             "status":           db_job.status,
+            "scan_depth":       db_job.scan_depth or "fast",
             "stage":            db_job.stage,
             "stage_label":      db_job.stage_label,
             "hosts_discovered": db_job.hosts_found,
@@ -292,6 +349,7 @@ def api_latest_scan():
         'scan_id':       db_job.scan_id,
         'target':        db_job.target,
         'status':        db_job.status,
+        'scan_depth':    db_job.scan_depth or 'fast',
         'stage':         db_job.stage,
         'stage_label':   db_job.stage_label,
         'hosts_found':   db_job.hosts_found,
@@ -371,15 +429,7 @@ def api_scan_cves(scan_id):
 @login_required
 def export_scan_pdf(scan_id):
     """Generate and download a PDF of the AI report for a completed scan."""
-    import datetime as _dt
-    import markdown as _md
-
-    try:
-        from weasyprint import HTML as WeasyHTML
-    except Exception:  # ImportError, or OSError from missing Pango/Cairo shared libs
-        current_app.logger.warning(
-            'WeasyPrint unavailable - scan PDF export disabled', exc_info=True)
-        abort(503)
+    from services.pdf_service import render_scan_pdf
 
     job = ScanJob.query.filter_by(
         scan_id=scan_id, user_id=current_user.id).first()
@@ -388,31 +438,9 @@ def export_scan_pdf(scan_id):
     if job.status != 'completed':
         abort(409)
 
-    report_html = _md.markdown(
-        job.result or '',
-        extensions=['tables', 'fenced_code'],
-    )
-
-    html_str = render_template(
-        'scan_pdf_report.html',
-        job=job,
-        report_html=report_html,
-        now=_dt.datetime.utcnow().strftime('%Y-%m-%d %H:%M UTC'),
-    )
-
-    try:
-        pdf = WeasyHTML(string=html_str).write_pdf()
-    except Exception:
-        current_app.logger.error(
-            'WeasyPrint render failed for scan %s', scan_id, exc_info=True)
+    pdf, filename = render_scan_pdf(job)
+    if pdf is None:
         abort(503)
-
-    # Filename = site + scan date, so repeat scans of the same target never
-    # collide. Allowlist sanitisation: anything not [A-Za-z0-9] becomes '_'.
-    safe_target = re.sub(r'[^A-Za-z0-9]+', '_', job.target).strip('_')[:40] or 'scan'
-    stamp = (job.completed_at or job.created_at
-             or _dt.datetime.utcnow()).strftime('%Y-%m-%d_%H%M')
-    filename = f'Scan_{safe_target}_{stamp}.pdf'
 
     from flask import make_response
     resp = make_response(pdf)
