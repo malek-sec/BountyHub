@@ -452,10 +452,21 @@
                 <span class="eyebrow">Claude Opus 4.8</span>
                 <h3 style="margin-top:4px;">Vulnerability intelligence report</h3>
             </div>
-            <button id="export-pdf-btn" class="btn btn-ghost" onclick="BH.exportPDF()">
-                <div class="pdf-spinner"></div>
-                <span class="pdf-icon">Export PDF</span>
-            </button>
+            <div style="display:flex; gap:8px; align-items:center;">
+                <button id="ai-report-btn" class="btn btn-ghost" onclick="BH.generateAiReport()"
+                        title="Run the Opus advisor on this scan's saved findings — reuses the JS analysis already done (one call). Spends API credit."
+                        hidden>
+                    <span id="ai-report-label">🤖 Generate AI report</span>
+                </button>
+                <button id="export-pdf-btn" class="btn btn-ghost" onclick="BH.exportPDF()">
+                    <div class="pdf-spinner"></div>
+                    <span class="pdf-icon">Export PDF</span>
+                </button>
+            </div>
+        </div>
+        <div id="ai-report-hint" class="muted" style="padding:0 var(--s3) var(--s2); font-size:12px;" hidden>
+            This report was generated offline (free). Click <b>Generate AI report</b> to synthesize a
+            Claude/Opus analysis from the same saved findings (spends API credit; reuses the JS analysis already done).
         </div>
         <div id="report-body-wrap"><div id="report-body"></div></div>
     </section>
@@ -629,6 +640,9 @@ const BH = (() => {
         lbImg        : document.getElementById("ss-lightbox-img"),
         lbCaption    : document.getElementById("ss-lightbox-caption"),
         exportBtn    : document.getElementById("export-pdf-btn"),
+        aiReportBtn  : document.getElementById("ai-report-btn"),
+        aiReportLabel: document.getElementById("ai-report-label"),
+        aiReportHint : document.getElementById("ai-report-hint"),
     };
 
     dom.input.addEventListener("keydown", function(e) {
@@ -990,19 +1004,54 @@ const BH = (() => {
     }
 
     function renderAIReport(md, scroll) {
+        dom.rptSection.style.display = "block";
+        // Offer the AI-upgrade button on any completed scan we have an id for.
+        var isOffline = !!md && /no api call|generated \*?\*?offline|offline_report/i.test(md);
+        if (dom.aiReportBtn) dom.aiReportBtn.hidden = !scanId;
+        if (dom.aiReportHint) dom.aiReportHint.hidden = !(scanId && (isOffline || !md || !md.trim()));
+
         if (!md || !md.trim()) {
-            dom.rptBody.innerHTML = '<p class="muted">No AI analysis available for this scan.</p>';
-            dom.rptSection.style.display = "block";
+            dom.rptBody.innerHTML = '<p class="muted">No AI analysis available for this scan. '
+                + 'Use “Generate AI report” to synthesize one from the saved findings.</p>';
             return;
         }
 
         dom.rptBody.innerHTML        = renderMarkdown(md);
-        dom.rptSection.style.display = "block";
         dom.exportBtn.style.display  = "inline-flex";
 
         if (scroll) {
             dom.rptSection.scrollIntoView({behavior: "smooth", block: "start"});
         }
+    }
+
+    // Run the Opus advisor on THIS scan's saved artifacts (reuses the JS findings
+    // already extracted — one synthesis call, no re-scan). Upgrades a free report
+    // or recovers one that failed on empty credit.
+    function generateAiReport() {
+        if (!scanId) { showError("No scan selected."); return; }
+        var btn = dom.aiReportBtn, label = dom.aiReportLabel;
+        if (btn) btn.disabled = true;
+        if (label) label.textContent = "🤖 Generating… (one Opus call)";
+        fetch("/api/scan/" + scanId + "/ai_report", {
+            method : "POST",
+            headers: { "Content-Type": "application/json", "X-CSRFToken": "{{ csrf_token() }}" },
+        })
+        .then(function(r) { return r.json().then(function(d) { return {ok:r.ok, data:d}; }); })
+        .then(function(res) {
+            if (btn) btn.disabled = false;
+            if (label) label.textContent = "🤖 Generate AI report";
+            if (!res.ok) {
+                showError(res.data.error || "AI report failed.");
+                return;
+            }
+            appendLog("[+] AI report generated from saved findings (Opus).", "info");
+            renderAIReport(res.data.result || "", true);
+        })
+        .catch(function(err) {
+            if (btn) btn.disabled = false;
+            if (label) label.textContent = "🤖 Generate AI report";
+            showError("Network error: " + err.message);
+        });
     }
 
     function onCompleted(data) {
@@ -1197,7 +1246,7 @@ const BH = (() => {
 
     return { startScan: startScan, stopScan: stopScan, closeLightbox: closeLightbox,
              exportPDF: exportPDF, onDepthChange: onDepthChange,
-             onAiModeChange: onAiModeChange };
+             onAiModeChange: onAiModeChange, generateAiReport: generateAiReport };
 })();
 </script>
 {% endif %}

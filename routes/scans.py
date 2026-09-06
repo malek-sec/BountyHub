@@ -162,6 +162,53 @@ def api_start_scan():
     }), 202
 
 
+@bp.route('/api/scan/<scan_id>/ai_report', methods=['POST'])
+@limiter.limit("10 per hour")
+@login_required
+def api_scan_ai_report(scan_id):
+    """Run the Opus advisor on a COMPLETED scan's saved artifacts.
+
+    Reuses the JS findings already extracted (one synthesis call, no re-scan) to
+    upgrade a FREE scan to a full AI report, or to recover a report that failed
+    the first time (e.g. empty API credit). Requires ANTHROPIC_API_KEY + credit.
+    """
+    if not ScanService._engine_available:
+        return jsonify({"error":  "Scan engine unavailable.",
+                        "detail": ScanService._engine_error}), 503
+
+    # Ownership: prefer the in-memory record, else the DB row for this user.
+    job = ScanService.get(scan_id)
+    if job is not None:
+        if job.get("user_id") != current_user.id:
+            return jsonify({"error": "Scan not found."}), 404
+    elif not ScanJob.query.filter_by(scan_id=scan_id, user_id=current_user.id).first():
+        return jsonify({"error": "Scan not found."}), 404
+
+    output_dir = Path(tempfile.gettempdir()) / "bountyhub_scans" / scan_id
+    if not output_dir.exists():
+        return jsonify({"error": ("Scan artifacts not found — they live in /tmp and are "
+                                  "cleared on reboot. Re-run the scan to regenerate them.")}), 404
+
+    try:
+        from core.advise_from_dir import advise_from_dir
+        res = advise_from_dir(output_dir)
+    except Exception as exc:
+        current_app.logger.exception("ai_report failed for %s", scan_id)
+        return jsonify({"error": f"Advisor error: {exc}"}), 500
+
+    report = res.get("report") or ""
+    if res.get("status") != "ok" or not report:
+        msgs = [e.get("msg", "") for e in res.get("events", [])
+                if e.get("level") in ("error", "warning") and e.get("msg")]
+        hint = " | ".join(msgs) or "No report was produced."
+        return jsonify({"error": "AI report not generated. " + hint}), 502
+
+    analyses = res.get("analyses", {})
+    ScanService.update(scan_id, result=report, analyses=analyses, ai_mode="ai")
+    return jsonify({"scan_id": scan_id, "status": "ok",
+                    "result": report, "analyses": analyses}), 200
+
+
 @bp.route('/api/scan_status/<scan_id>', methods=['GET'])
 @limiter.exempt  # High-frequency live-log poll (~1 req / 3s). It is read-only
                  # and user-scoped, so it must not be governed by the global
