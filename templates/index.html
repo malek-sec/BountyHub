@@ -49,6 +49,16 @@
     .depth-sub   { font-size: 11px; color: var(--ink-soft); font-family: var(--font-mono); }
     .depth-warn  { margin-top: var(--s1); font-size: 11px; color: var(--yellow);
         font-family: var(--font-mono); display: none; }
+    /* AI cost-mode toggle (Free $0 vs AI report) */
+    .ai-toggle { display: flex; align-items: flex-start; gap: 10px; margin-top: var(--s2);
+        padding: 10px 14px; border: 1px solid var(--line); border-radius: var(--r-sm);
+        background: var(--bg-soft); cursor: pointer; }
+    .ai-toggle input { margin-top: 2px; width: 16px; height: 16px; cursor: pointer;
+        accent-color: var(--accent); flex: 0 0 auto; }
+    .ai-toggle-text { display: flex; flex-direction: column; gap: 2px; }
+    .ai-toggle-title { font-weight: 600; font-size: 13px; }
+    .ai-toggle-sub { font-size: 11px; color: var(--ink-soft); font-family: var(--font-mono);
+        line-height: 1.5; }
     #scan-target { flex: 1; font-family: var(--font-mono); }
     #scan-btn { white-space: nowrap; }
     .btn-spinner {
@@ -383,6 +393,17 @@
                 nuclei. Only run it against targets you are authorised to test.
             </div>
 
+            <label class="ai-toggle">
+                <input type="checkbox" id="ai-mode" onchange="BH.onAiModeChange()">
+                <span class="ai-toggle-text">
+                    <span class="ai-toggle-title">🤖 AI report (Claude / Opus)</span>
+                    <span class="ai-toggle-sub" id="ai-mode-sub">
+                        Off = <b>Free ($0)</b> — JS analyzed offline (regex) + deterministic
+                        report, no API cost. Turn on to spend credit for a Claude-synthesized report.
+                    </span>
+                </span>
+            </label>
+
             <div id="reconnect-banner">
                 <span>↻</span>
                 <span id="reconnect-msg">Reconnecting to active scan…</span>
@@ -665,10 +686,28 @@ const BH = (() => {
         if (warn) warn.style.display = isDeepScan() ? "block" : "none";
     }
 
+    // True when the "AI report" toggle is on (spends API credit). Default off = free.
+    function useAI() {
+        var el = document.getElementById("ai-mode");
+        return !!el && el.checked;
+    }
+
+    // Reflect the chosen cost mode in the toggle sub-label.
+    function onAiModeChange() {
+        var sub = document.getElementById("ai-mode-sub");
+        if (!sub) return;
+        sub.innerHTML = useAI()
+            ? "On = <b>AI mode</b> — per-file Claude analysis + Opus-synthesized report. "
+              + "Spends API credit."
+            : "Off = <b>Free ($0)</b> — JS analyzed offline (regex) + deterministic report, "
+              + "no API cost. Turn on to spend credit for a Claude-synthesized report.";
+    }
+
     function startScan() {
         var target = (dom.input.value || "").trim();
         if (!target) { showError("Please enter a target domain first."); return; }
         var deepScan = isDeepScan();
+        var aiMode   = useAI() ? "ai" : "free";
         resetUI();
         setBusy(true);
         fetch("/api/start_scan", {
@@ -677,7 +716,7 @@ const BH = (() => {
                 "Content-Type": "application/json",
                 "X-CSRFToken" : "{{ csrf_token() }}"
             },
-            body   : JSON.stringify({target: target, run_active_recon: deepScan}),
+            body   : JSON.stringify({target: target, run_active_recon: deepScan, ai_mode: aiMode}),
         })
         .then(function(r) { return r.json().then(function(d) { return {ok:r.ok, status:r.status, data:d}; }); })
         .then(function(res) {
@@ -696,6 +735,9 @@ const BH = (() => {
             appendLog("[*] Mode: " + (deepScan
                 ? "Deep scan (Active Recon & Fuzzing enabled)"
                 : "Fast scan (passive only)"), "info");
+            appendLog("[*] Cost: " + (aiMode === "ai"
+                ? "AI report (Claude/Opus — spends API credit)"
+                : "Free ($0) — offline analysis + deterministic report"), "info");
             schedulePoll();
         })
         .catch(function(err) {
@@ -1154,7 +1196,8 @@ const BH = (() => {
     }
 
     return { startScan: startScan, stopScan: stopScan, closeLightbox: closeLightbox,
-             exportPDF: exportPDF, onDepthChange: onDepthChange };
+             exportPDF: exportPDF, onDepthChange: onDepthChange,
+             onAiModeChange: onAiModeChange };
 })();
 </script>
 {% endif %}

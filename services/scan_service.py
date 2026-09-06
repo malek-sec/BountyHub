@@ -359,11 +359,16 @@ class ScanService:
 
     @classmethod
     def run_worker(cls, app, scan_id: str, target: str, output_dir: Path,
-                   run_active_recon: bool = False) -> None:
+                   run_active_recon: bool = False, ai_mode: str = "free") -> None:
         """
-        Execute the full recon → fingerprint → AI pipeline in a daemon thread.
-        Accepts app as a parameter to call app.app_context() without importing
-        from app.py (prevents circular imports).
+        Execute the full recon → fingerprint → JS → report pipeline in a daemon
+        thread. Accepts app as a parameter to call app.app_context() without
+        importing from app.py (prevents circular imports).
+
+        ai_mode: "free"  → JS-Oracle runs offline (regex only, no LLM) and the
+                            final report is generated deterministically ($0).
+                 "ai"    → JS-Oracle uses Claude per-file and the Opus advisor
+                            writes a synthesized report (spends API credit).
         """
         from services.notify_service import NotifyService
 
@@ -564,7 +569,8 @@ class ScanService:
                 if js_urls:
                     try:
                         from core.js_oracle import JSOracle
-                        js_result = JSOracle(output_dir).execute(target, js_urls)
+                        js_result = JSOracle(output_dir).execute(
+                            target, js_urls, offline=(ai_mode == "free"))
                         cls.append_log(scan_id, js_result["events"])
                         js_data = js_result
 
@@ -596,40 +602,58 @@ class ScanService:
                         "msg":   "JS-Oracle skipped — no JavaScript files discovered in Module 1",
                     }])
 
-                # ── Stage 4: AI Vulnerability Advisor ─────────────────────
-                cls.update(scan_id,
-                           stage="ai_analysis",
-                           stage_label="Claude AI batch vulnerability analysis")
-
+                # ── Stage 4: Reporting ────────────────────────────────────
+                # FREE mode → deterministic offline report ($0, no LLM).
+                # AI mode   → Opus-synthesized advisor report (spends credit).
                 if cls._is_cancelled(scan_id):
                     return
-                ai = AIAdvisorModule(fp_data, output_dir,
-                                     js_data=js_data,
-                                     active_data=active_data).execute()
-                cls.append_log(scan_id, ai["events"])
 
-                analyses = ai.get("analyses", {})
-                if not analyses or all(
-                        v == "Analysis unavailable." for v in analyses.values()):
+                if ai_mode == "free":
                     cls.update(scan_id,
-                               status="failed",
-                               error=(
-                                   "AI analysis returned no results. "
-                                   "Verify ANTHROPIC_API_KEY is set and the account has API access."
-                               ),
-                               completed_at=datetime.datetime.utcnow().isoformat())
-                    return
+                               stage="report",
+                               stage_label="Generating report from findings (offline, no AI cost)")
+                    from core.offline_report import build_report
+                    full_report = build_report(output_dir)
+                    analyses = {target: full_report}
+                    cls.append_log(scan_id, [{
+                        "level": "info",
+                        "msg":   ("FREE mode — AI advisor skipped. Report generated "
+                                  "offline from findings ($0). Re-run in AI mode for a "
+                                  "Claude-synthesized analysis."),
+                    }])
+                else:
+                    cls.update(scan_id,
+                               stage="ai_analysis",
+                               stage_label="Claude AI batch vulnerability analysis")
+                    ai = AIAdvisorModule(fp_data, output_dir,
+                                         js_data=js_data,
+                                         active_data=active_data).execute()
+                    cls.append_log(scan_id, ai["events"])
 
-                # ── Compile final Markdown report ─────────────────────────
-                parts = []
-                for host_url, analysis in analyses.items():
-                    if analysis and analysis not in (
-                        "Analysis unavailable.",
-                        "Analysis not generated for this host.",
-                    ):
-                        parts.append(f"## {host_url}\n\n{analysis}")
+                    analyses = ai.get("analyses", {})
+                    if not analyses or all(
+                            v == "Analysis unavailable." for v in analyses.values()):
+                        cls.update(scan_id,
+                                   status="failed",
+                                   error=(
+                                       "AI analysis returned no results. Verify "
+                                       "ANTHROPIC_API_KEY is set and the account has API "
+                                       "credit. Tip: re-run in FREE mode for a $0 "
+                                       "deterministic report from the same findings."
+                                   ),
+                                   completed_at=datetime.datetime.utcnow().isoformat())
+                        return
 
-                full_report = "\n\n---\n\n".join(parts) if parts else "No analysis generated."
+                    # ── Compile final Markdown report ─────────────────────
+                    parts = []
+                    for host_url, analysis in analyses.items():
+                        if analysis and analysis not in (
+                            "Analysis unavailable.",
+                            "Analysis not generated for this host.",
+                        ):
+                            parts.append(f"## {host_url}\n\n{analysis}")
+
+                    full_report = "\n\n---\n\n".join(parts) if parts else "No analysis generated."
 
                 # Final cancel check — don't overwrite a 'cancelled' verdict with
                 # 'completed' if the user cancelled during the AI stage.
@@ -645,10 +669,13 @@ class ScanService:
                            hosts_scanned=len(fp_data),
                            completed_at=datetime.datetime.utcnow().isoformat())
 
+                report_line = ("🧾 <b>Offline Report Generated</b> (free, $0)."
+                               if ai_mode == "free"
+                               else "🤖 <b>AI Report Generated.</b>")
                 NotifyService.notify_all(
                     f"✅ <b>Scan Completed:</b> {target}\n"
                     f"🔍 <b>Hosts Scanned:</b> {len(fp_data)}\n"
-                    f"🤖 <b>AI Report Generated.</b>"
+                    f"{report_line}"
                 )
 
                 # Attach the full AI report as a PDF to the Telegram notification.

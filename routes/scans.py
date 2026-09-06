@@ -1,5 +1,6 @@
 import datetime
 import json
+import os
 import re
 import tempfile
 import threading
@@ -58,6 +59,20 @@ def api_start_scan():
     if engine_cfg is not None and not getattr(engine_cfg, "ACTIVE_RECON_ENABLED", True):
         run_active_recon = False
 
+    # AI cost mode: "free" (default) runs JS analysis + report deterministically
+    # offline with ZERO API cost; "ai" spends credit for per-file Claude analysis
+    # and an Opus-synthesized report. The default is env-tunable so an operator
+    # can make paid AI the default, but out of the box no scan spends credit.
+    default_mode = os.environ.get("BOUNTYHUB_DEFAULT_AI_MODE", "free").strip().lower()
+    if default_mode not in ("free", "ai"):
+        default_mode = "free"
+    raw_mode = body.get("ai_mode")
+    if raw_mode is None and "use_ai" in body:          # convenience boolean
+        raw_mode = "ai" if body.get("use_ai") else "free"
+    ai_mode = str(raw_mode).strip().lower() if raw_mode is not None else default_mode
+    if ai_mode not in ("free", "ai"):
+        ai_mode = default_mode
+
     if not target:
         return jsonify({"error": "Missing required field: 'target'"}), 400
 
@@ -109,6 +124,7 @@ def api_start_scan():
             "output_dir":       str(output_dir),
             "run_active_recon": run_active_recon,
             "scan_depth":       "deep" if run_active_recon else "fast",
+            "ai_mode":          ai_mode,
         }
 
     try:
@@ -130,7 +146,7 @@ def api_start_scan():
     thread = threading.Thread(
         target=ScanService.run_worker,
         args=(app, scan_id, target, output_dir),
-        kwargs={"run_active_recon": run_active_recon},
+        kwargs={"run_active_recon": run_active_recon, "ai_mode": ai_mode},
         daemon=True,
         name=f"bh-scan-{scan_id[:8]}",
     )
@@ -141,6 +157,7 @@ def api_start_scan():
         "target":     target,
         "status":     "running",
         "scan_depth": "deep" if run_active_recon else "fast",
+        "ai_mode":    ai_mode,
         "poll_url":   f"/api/scan_status/{scan_id}",
     }), 202
 
