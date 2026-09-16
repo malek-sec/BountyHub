@@ -32,8 +32,14 @@ import sys
 import tempfile
 import unittest
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
-sys.path.insert(0, "/home/kali/scan-engine")
+_REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+sys.path.insert(0, _REPO_ROOT)
+
+# scan-engine is expected as a sibling checkout (the same default config.py uses).
+# Overridable for layouts that put it elsewhere; never pinned to one machine.
+_ENGINE_ROOT = os.environ.get("SCAN_ENGINE_ROOT") or os.path.join(
+    os.path.dirname(_REPO_ROOT), "scan-engine")
+sys.path.insert(0, _ENGINE_ROOT)
 
 os.environ.setdefault("FLASK_SECRET_KEY", "t" * 64)
 

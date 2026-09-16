@@ -35,8 +35,13 @@ static/screenshots/*
 .DS_Store
 Thumbs.db
 
-# Recon output / target data — not project source
-flynas_*.txt
+# Recon output / target data — not project source.
+# Keep target names out of this file; it is public.
+targets/
+recon_output/
+*_recon.txt
+*_subdomains.txt
+*_live_hosts.txt
 
 # Stale backup files
 *.bak
