@@ -176,6 +176,14 @@ It is built to be run locally by one operator, and the defaults reflect that:
   stored under a `secure_filename` timestamped name.
 - **Markdown is sanitised client side** with DOMPurify, served from a local copy
   so a CDN outage can never silently degrade into an unsanitised fallback.
+- **PDF report bodies are sanitised server side** with a `bleach` allow-list
+  before they reach the template that renders them. This is not only an XSS
+  control: WeasyPrint resolves URLs while laying out the page, so restricting
+  protocols to `http`, `https`, and `mailto` is what stops a `file://` reference
+  in a report body from pulling local file content into the PDF. Disallowed
+  markup is escaped rather than dropped, so a quoted XSS payload stays readable
+  as evidence instead of being silently gutted. If `bleach` is missing the PDF
+  is not produced at all — the path fails closed.
 - **Target input is strictly validated.** Only well-formed bare hostnames reach
   the scan engine; URLs, IP addresses, and shell metacharacters are rejected at
   the API boundary. No subprocess in the toolchain uses a shell.
@@ -209,5 +217,4 @@ python3 -m pytest tests/
 
 ## License
 
-No license file is currently present, which means default copyright applies and
-the code is not licensed for reuse. If you intend others to use it, add one.
+MIT - see [LICENSE](LICENSE).
